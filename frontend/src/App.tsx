@@ -43,8 +43,8 @@ function App() {
             <Route path="/books/:id" element={<BookDetailsPage />} />
           </Routes>
         </main>
-        <Toaster />
       </div>
+      <Toaster />
     </Router>
   )
 }
