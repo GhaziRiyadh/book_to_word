@@ -1,12 +1,16 @@
+import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 
-SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./ocr_database.db"
-# For PostgreSQL async: "postgresql+asyncpg://user:password@postgresserver/db"
+# Fallback to sqlite if DATABASE_URL is not set
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./ocr_database.db")
 
 engine = create_async_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    DATABASE_URL, 
+    echo=True,
+    **({"connect_args": {"check_same_thread": False}} if DATABASE_URL.startswith("sqlite") else {})
 )
+
 AsyncSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=engine, class_=AsyncSession)
 
 Base = declarative_base()
