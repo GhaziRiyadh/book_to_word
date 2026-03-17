@@ -7,6 +7,7 @@ import os
 import shutil
 import aiofiles
 
+from fastapi.staticfiles import StaticFiles
 from database import engine, Base, get_async_db
 from models import Book, Page, OCRResult
 from services import handle_pdf_upload, process_document_task
@@ -33,9 +34,18 @@ app.add_middleware(
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# Serve uploaded images statically
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the Arabic OCR System API"}
+
+@app.get("/api/v1/books")
+async def get_all_books(db: AsyncSession = Depends(get_async_db)):
+    result = await db.execute(select(Book).order_by(Book.created_at.desc()))
+    books = result.scalars().all()
+    return {"books": [{"id": b.id, "title": b.title, "status": b.status, "created_at": b.created_at} for b in books]}
 
 # Basic placeholders for the endpoints
 @app.post("/api/v1/books/upload")
