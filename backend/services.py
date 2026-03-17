@@ -1,4 +1,8 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
+POPPLER_PATH = os.getenv("POPPLER_PATH", None)
 import asyncio
 from pdf2image import convert_from_path
 from paddleocr import PaddleOCR
@@ -10,7 +14,7 @@ from models import Book, Page, OCRResult
 
 # Initialize PaddleOCR
 # We use Arabic language model for Mobile version
-ocr = PaddleOCR(use_angle_cls=True, lang='ar', show_log=False)
+ocr = PaddleOCR(use_angle_cls=True, lang='ar')
 
 def preprocess_image(image_path: str):
     # Load image using OpenCV
@@ -109,7 +113,10 @@ async def handle_pdf_upload(file_path: str, upload_dir: str):
     loop = asyncio.get_running_loop()
     # If poppler is not installed, this will throw an exception.
     # On Windows, you might need to pass `poppler_path=r'C:\path\to\poppler-xx\bin'`
-    images = await loop.run_in_executor(None, convert_from_path, file_path)
+    def _convert():
+        kwargs = {"poppler_path": POPPLER_PATH} if POPPLER_PATH else {}
+        return convert_from_path(file_path, **kwargs)
+    images = await loop.run_in_executor(None, _convert)
     
     saved_paths = []
     base_name = os.path.basename(file_path).split('.')[0]

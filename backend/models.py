@@ -13,7 +13,7 @@ class Book(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     status = Column(String, default="Pending")  # Pending, Processing, Completed, Failed
 
-    pages = relationship("Page", back_populates="book")
+    pages = relationship("Page", back_populates="book", lazy="selectin")
 
 class Page(Base):
     __tablename__ = "pages"
@@ -24,8 +24,8 @@ class Page(Base):
     image_path = Column(String)
     status = Column(String, default="Pending")
 
-    book = relationship("Book", back_populates="pages")
-    ocr_result = relationship("OCRResult", back_populates="page", uselist=False)
+    book = relationship("Book", back_populates="pages", lazy="selectin")
+    ocr_result = relationship("OCRResult", back_populates="page", uselist=False, lazy="selectin")
 
 class OCRResult(Base):
     __tablename__ = "ocr_results"
@@ -36,4 +36,4 @@ class OCRResult(Base):
     confidence_score = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-    page = relationship("Page", back_populates="ocr_result")
+    page = relationship("Page", back_populates="ocr_result", lazy="selectin")
