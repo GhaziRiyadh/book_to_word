@@ -113,14 +113,17 @@ async def get_book_status(book_id: str, db: AsyncSession = Depends(get_async_db)
     result = await db.execute(select(Page).where(Page.book_id == book_id))
     pages = result.scalars().all()
     
-    completed = sum(1 for p in pages if p.status == "Completed")
+    completed = sum(1 for p in pages if p.status in ["Completed", "Published"])
     total = len(pages)
+    progress_percent = (completed / total * 100) if total > 0 else 0
     
-    pages_status = [{"page_number": p.page_number, "status": p.status} for p in pages]
+    pages_status = [{"page_number": p.page_number, "status": p.status, "id": p.id} for p in pages]
     
     return {
         "status": book.status,
+        "title": book.title,
         "progress": f"{completed}/{total}",
+        "progress_percent": progress_percent,
         "pages": pages_status
     }
 
@@ -137,6 +140,7 @@ async def get_book_results(book_id: str, db: AsyncSession = Depends(get_async_db
         confidence = ocr_data.confidence_score if ocr_data else 0.0
         
         results.append({
+            "id": page.id,
             "page_number": page.page_number,
             "image_path": page.image_path,
             "extracted_text": text,
@@ -144,7 +148,47 @@ async def get_book_results(book_id: str, db: AsyncSession = Depends(get_async_db
             "status": page.status
         })
         
-    return {"book_id": book_id, "results": results}
+    book = await db.get(Book, book_id)
+    return {
+        "book_id": book_id, 
+        "title": book.title if book else "كتاب غير معروف",
+        "results": results
+    }
+
+@app.put("/api/v1/pages/{page_id}/ocr")
+async def update_page_ocr(
+    page_id: str,
+    extracted_text: str = Form(...),
+    status: str = Form("Published"),
+    db: AsyncSession = Depends(get_async_db)
+):
+    page = await db.get(Page, page_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Page not found")
+    
+    ocr_res = await db.execute(select(OCRResult).where(OCRResult.page_id == page_id))
+    ocr_data = ocr_res.scalar_one_or_none()
+    
+    if not ocr_data:
+        ocr_data = OCRResult(page_id=page_id, extracted_text=extracted_text)
+        db.add(ocr_data)
+    else:
+        ocr_data.extracted_text = extracted_text
+    
+    page.status = status
+    await db.commit()
+    
+    # Check if all pages are Published/Completed to update book status
+    book_id = page.book_id
+    result = await db.execute(select(Page).where(Page.book_id == book_id))
+    all_pages = result.scalars().all()
+    if all(p.status in ["Completed", "Published"] for p in all_pages):
+        book = await db.get(Book, book_id)
+        if book:
+            book.status = "Completed" # Or "Published" if all are published
+            await db.commit()
+
+    return {"message": "OCR updated successfully", "status": page.status}
 
 @app.get("/api/v1/books/{book_id}/export")
 async def export_book_results(book_id: str, format: str = "txt", db: AsyncSession = Depends(get_async_db)):

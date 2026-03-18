@@ -1,133 +1,155 @@
 import os
-from dotenv import load_dotenv
-load_dotenv()
-
-POPPLER_PATH = os.getenv("POPPLER_PATH", None)
+import logging
 import asyncio
+import traceback
+import aiofiles
+from dotenv import load_dotenv
 from pdf2image import convert_from_path
-from paddleocr import PaddleOCR
-import cv2
-import numpy as np
+import google.generativeai as genai
+from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from models import Book, Page, OCRResult
-
-# Initialize PaddleOCR
-# We use Arabic language model for Mobile version
-ocr = PaddleOCR(use_angle_cls=True, lang='ar')
-
-def preprocess_image(image_path: str):
-    # Load image using OpenCV
-    img = cv2.imread(image_path)
-    if img is None:
-        return None
-        
-    # Convert to grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    # Adaptive thresholding for bad quality images
-    # We can use simple thresholding or adaptive
-    # CLAHE (Contrast Limited Adaptive Histogram Equalization)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray)
-    
-    # We could do deskewing here, but PaddleOCR (use_angle_cls=True) handles it often
-    
-    # We save a temporary optimized image or pass original. 
-    # PaddleOCR can take paths directly, or numpy arrays.
-    # Returning the enhanced image array for OCR
-    return enhanced
-
 from database import AsyncSessionLocal
 
+load_dotenv()
+
+from adapters.factory import AdapterFactory
+
+load_dotenv()
+
+POPPLER_PATH = os.getenv("POPPLER_PATH", None)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("backend_ocr.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("ocr_service")
+
+# Initialize AI Adapter via Factory
+try:
+    ai_adapter = AdapterFactory.get_adapter()
+    logger.info(f"AI Adapter ({os.getenv('AI_PROVIDER', 'gemini')}) configured successfully.")
+except Exception as e:
+    logger.critical(f"Failed to initialize AI Adapter: {e}")
+    ai_adapter = None
+
+
 async def process_document_task(book_id: str):
-    async with AsyncSessionLocal() as db:
-        try:
-            # Mark book as Processing
+    """
+    Background task to process all pages of a book using the configured AI provider.
+    """
+    if not ai_adapter:
+        logger.error("AI Adapter not initialized. Cannot process task.")
+        return
+
+    logger.info(f"Starting OCR task for book ID: {book_id}")
+    
+    try:
+        async with AsyncSessionLocal() as db:
             book = await db.get(Book, book_id)
             if not book:
+                logger.error(f"Book {book_id} not found in database.")
                 return
+            
             book.status = "Processing"
             await db.commit()
-            
-            # Get all pages for this book
-            result = await db.execute(select(Page).where(Page.book_id == book_id).order_by(Page.page_number))
+
+            result = await db.execute(
+                select(Page).where(Page.book_id == book_id).order_by(Page.page_number)
+            )
             pages = result.scalars().all()
-            
+
+            prompt = (
+                "استخرج النص العربي من هذه الصورة بدقة تامة. "
+                "حافظ على ترتيب الفقرات، الكلمات، والتنسيق والسطور كما هي في الصورة. "
+                "الرجاء إرجاع النص المستخرج فقط الصافي، بدون أي مقدمات، أو شروحات، أو علامات توضيحية (مثل ```text)."
+            )
+
             for page in pages:
-                page.status = "Processing"
-                await db.commit()
-                
-                # ... same OCR processing
-                img_path = page.image_path
-                
-                # Preprocess image
-                processed_img = preprocess_image(img_path)
-                if processed_img is None:
-                    processed_img = img_path
+                try:
+                    page.status = "Processing"
+                    await db.commit()
+
+                    img_path = str(page.image_path)
+                    if not os.path.exists(img_path):
+                        raise FileNotFoundError(f"Image not found at {img_path}")
+
+                    logger.info(f"Processing page {page.page_number}/{len(pages)}: {img_path}")
+
+                    img = Image.open(img_path)
+
+                    # Use the adapter to process the image
+                    extracted_text = await ai_adapter.process_image(img, prompt)
                     
-                # Run OCR
-                loop = asyncio.get_running_loop()
-                ocr_result_raw = await loop.run_in_executor(None, ocr.ocr, processed_img, True)
-                
-                extracted_text = ""
-                confidence_sum = 0
-                word_count = 0
-                
-                if ocr_result_raw and ocr_result_raw[0]:
-                    for line in ocr_result_raw[0]:
-                        text, confidence = line[1]
-                        extracted_text += text + "\n"
-                        confidence_sum += confidence
-                        word_count += 1
-                
-                avg_confidence = (confidence_sum / word_count) if word_count > 0 else 0
-                
-                # Save results
-                ocr_record = OCRResult(
-                    page_id=page.id,
-                    extracted_text=extracted_text.strip(),
-                    confidence_score=float(avg_confidence)
-                )
-                db.add(ocr_record)
-                
-                page.status = "Completed"
-                await db.commit()
-                
-            # All pages processed, update book
+                    confidence = 1.0 if extracted_text else 0.0
+
+                    ocr_record = OCRResult(
+                        page_id=page.id,
+                        extracted_text=extracted_text,
+                        confidence_score=confidence
+                    )
+                    db.add(ocr_record)
+
+                    page.status = "Completed"
+                    await db.commit()
+
+                    # Rate limiting delay
+                    await asyncio.sleep(1) 
+
+                except Exception as pe:
+                    logger.error(f"Error processing page {page.page_number}: {pe}")
+                    page.status = "Failed"
+                    await db.commit()
+                    continue 
+
             book.status = "Completed"
             await db.commit()
-            
-        except Exception as e:
-            print(f"Error processing book {book_id}: {e}")
-            book = await db.get(Book, book_id)
-            if book:
-                book.status = "Failed"
-                await db.commit()
+            logger.info(f"Completed OCR task for book: {book_id}")
+
+    except Exception as e:
+        error_msg = traceback.format_exc()
+        logger.error(f"Critical error processing book {book_id}: {e}\n{error_msg}")
+        
+        try:
+            async with AsyncSessionLocal() as fail_db:
+                book = await fail_db.get(Book, book_id)
+                if book:
+                    book.status = "Failed"
+                    await fail_db.commit()
+        except Exception as fe:
+            logger.error(f"Failed to update book status to Failed: {fe}")
 
 async def handle_pdf_upload(file_path: str, upload_dir: str):
     """
-    Splits a PDF into images and saves them.
-    Requires poppler installed on the system (e.g. via conda or downloading poppler for windows).
+    Splits a PDF into images and saves them asynchronously.
     """
+    logger.info(f"Converting PDF to images: {file_path}")
     loop = asyncio.get_running_loop()
-    # If poppler is not installed, this will throw an exception.
-    # On Windows, you might need to pass `poppler_path=r'C:\path\to\poppler-xx\bin'`
+    
     def _convert():
         kwargs = {"poppler_path": POPPLER_PATH} if POPPLER_PATH else {}
         return convert_from_path(file_path, **kwargs)
-    images = await loop.run_in_executor(None, _convert)
     
+    try:
+        images = await loop.run_in_executor(None, _convert)
+    except Exception as e:
+        logger.error(f"PDF conversion failed: {e}")
+        raise
+
     saved_paths = []
     base_name = os.path.basename(file_path).split('.')[0]
-    book_folder = os.path.join(upload_dir, base_name)
-    os.makedirs(book_folder, exist_ok=True)
+    book_folder = os.path.dirname(file_path)
     
     for i, image in enumerate(images):
-        page_path = os.path.join(book_folder, f"page_{i+1}.png")
-        # Save image synchronously in executor or directly (Pillow save is fast)
+        page_path = os.path.join(book_folder, f"page_{i+1:03d}.png")
         image.save(page_path, "PNG")
         saved_paths.append(page_path)
         
+    logger.info(f"Successfully converted PDF into {len(saved_paths)} images.")
     return saved_paths
-

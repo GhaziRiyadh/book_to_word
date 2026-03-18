@@ -17,6 +17,7 @@ type Book = {
 export function DashboardPage() {
   const [books, setBooks] = useState<Book[]>([])
   const [loading, setLoading] = useState(true)
+  const [processingBookId, setProcessingBookId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchBooks()
@@ -30,6 +31,18 @@ export function DashboardPage() {
       console.error("Failed to fetch books", error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleReprocess = async (bookId: string) => {
+    try {
+      setProcessingBookId(bookId)
+      await axios.post(`${API_URL}/books/${bookId}/process`)
+      await fetchBooks()
+    } catch (error) {
+      console.error("Failed to reprocess book", error)
+    } finally {
+      setProcessingBookId(null)
     }
   }
 
@@ -78,11 +91,20 @@ export function DashboardPage() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Link to={`/books/${book.id}`}>
-                        <Button variant="outline" size="sm">
-                          {book.status === 'Completed' ? 'عرض النتائج' : 'التفاصيل'}
+                      <div className="flex items-center gap-2">
+                        <Link to={`/books/${book.id}`}>
+                          <Button variant="outline" size="sm">
+                            {book.status === 'Completed' ? 'عرض النتائج' : 'التفاصيل'}
+                          </Button>
+                        </Link>
+                        <Button
+                          size="sm"
+                          onClick={() => handleReprocess(book.id)}
+                          disabled={book.status === 'Processing' || processingBookId === book.id}
+                        >
+                          {processingBookId === book.id ? 'جاري البدء...' : 'إعادة المعالجة'}
                         </Button>
-                      </Link>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

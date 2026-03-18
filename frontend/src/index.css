@@ -74,3 +74,49 @@
     @apply bg-background text-foreground;
   }
 }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 20mm;
+  }
+
+  body {
+    background: white !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .scientific-page-container {
+    border: 1px solid #eee;
+    padding: 30mm;
+    margin-bottom: 0;
+    min-height: 250mm;
+    position: relative;
+    background: white;
+    box-shadow: none;
+  }
+
+  .scientific-page-content {
+    font-family: 'Amiri', 'Traditional Arabic', 'Times New Roman', serif;
+    font-size: 18pt;
+    line-height: 1.8;
+    text-align: justify;
+    direction: rtl;
+    color: black;
+  }
+
+  /* Force page break after each book page */
+  .page-break {
+    break-after: page;
+    page-break-after: always;
+  }
+}
