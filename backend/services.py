@@ -66,9 +66,11 @@ async def process_document_task(book_id: str):
             pages = result.scalars().all()
 
             prompt = (
-                "استخرج النص العربي من هذه الصورة بدقة تامة. "
-                "حافظ على ترتيب الفقرات، الكلمات، والتنسيق والسطور كما هي في الصورة. "
-                "الرجاء إرجاع النص المستخرج فقط الصافي، بدون أي مقدمات، أو شروحات، أو علامات توضيحية (مثل ```text)."
+                "استخرج النص العربي من هذه الصورة بدقة تامة وحوله إلى تنسيق HTML نظيف ومبسط. "
+                "استخدم وسوم HTML مثل <h1> للعناوين الكبيرة، <h2> للعناوين الفرعية، <p> للفقرات، <b> للكلمات المهمة، "
+                "و <ul><li> للقوائم إن وجدت. "
+                "حافظ على هيكلية النص الأساسية كما هي في الصورة. "
+                "الرجاء إرجاع كود HTML الخاص بالمحتوى فقط، بدون وسوم <html> أو <body> أو ```html."
             )
 
             for page in pages:
@@ -99,8 +101,8 @@ async def process_document_task(book_id: str):
                     page.status = "Completed"
                     await db.commit()
 
-                    # Rate limiting delay
-                    await asyncio.sleep(1) 
+                    # Rate limiting delay - increased for stability
+                    await asyncio.sleep(5) 
 
                 except Exception as pe:
                     logger.error(f"Error processing page {page.page_number}: {pe}")

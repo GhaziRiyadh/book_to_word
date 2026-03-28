@@ -253,9 +253,10 @@ export function BookDetailsPage() {
                              {/* <span className="flex-1 text-left">{page.page_number % 2 === 0 ? "الفقه الإسلامي" : "أصول الفقه"}</span> */}
                           </div>
                           
-                          <div className="scientific-page-content whitespace-pre-wrap px-4 min-h-[600px] print:text-justify text-xs">
-                             {editingTexts[page.id]}
-                          </div>
+                          <div 
+                           className="scientific-page-content px-4 min-h-[600px] print:text-justify text-xs htm-content"
+                           dangerouslySetInnerHTML={{ __html: editingTexts[page.id] }}
+                        />
                         </div>
                       </div>
                     </div>

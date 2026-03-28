@@ -72,6 +72,7 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: 'Cairo', sans-serif;
   }
 }
 
@@ -106,12 +107,30 @@
   }
 
   .scientific-page-content {
-    font-family: 'Amiri', 'Traditional Arabic', 'Times New Roman', serif;
+    font-family: 'IBM Plex Sans Arabic', sans-serif;
     font-size: 18pt;
     line-height: 1.8;
     text-align: justify;
     direction: rtl;
     color: black;
+  }
+
+  .scientific-page-content h1 {
+    font-size: 24pt;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 1em;
+  }
+
+  .scientific-page-content h2 {
+    font-size: 20pt;
+    font-weight: bold;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+  }
+
+  .scientific-page-content p {
+    margin-bottom: 1em;
   }
 
   /* Force page break after each book page */
