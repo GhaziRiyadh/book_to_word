@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams } from "react-router-dom"
 import axios from "axios"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress"
 // import { ScrollArea } from "@/components/ui/scroll-area" // Unused after refactor to scientific layout
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, CheckCircle2, AlertCircle, FileText, Printer, Download, RefreshCw } from "lucide-react"
+import { Loader2, CheckCircle2, AlertCircle, FileText, Printer, Download, RefreshCw, ChevronDown } from "lucide-react"
 
 const API_URL = "http://localhost:8000/api/v1"
 const BACKEND_URL = "http://localhost:8000"
@@ -34,6 +34,8 @@ export function BookDetailsPage() {
   const [bookStatus, setBookStatus] = useState<BookStatus | null>(null)
   const [results, setResults] = useState<PageResult[]>([])
   const [isReprocessing, setIsReprocessing] = useState(false)
+  const [resumeAttempted, setResumeAttempted] = useState(false)
+  const [expandedPageId, setExpandedPageId] = useState<string | null>(null)
   const [editingTexts, setEditingTexts] = useState<Record<string, string>>({})
   const [savingPages, setSavingPages] = useState<Record<string, boolean>>({})
   
@@ -41,8 +43,21 @@ export function BookDetailsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [isSearching, setIsSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<any[]>([])
+  const isStatusPollingRef = useRef(false)
+  const lastStatusKeyRef = useRef("")
+  const currentBookStatusRef = useRef<string>("")
+
+  const buildStatusKey = (status: BookStatus) => {
+    const pagesKey = (status.pages || [])
+      .map((p) => `${p.id}:${p.status}`)
+      .join("|")
+    return `${status.status}::${pagesKey}`
+  }
   
   const fetchResults = async () => {
+    if (!id) {
+      return
+    }
     try {
       const res = await axios.get(`${API_URL}/books/${id}/results`)
       setResults(res.data.results)
@@ -63,31 +78,55 @@ export function BookDetailsPage() {
     }
   }
 
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval>
-    
-    const fetchStatus = async () => {
-      try {
-        const res = await axios.get(`${API_URL}/books/${id}/status`)
-        setBookStatus(res.data)
-        
-        // If results are available or processing is done, fetch/refresh results
-        fetchResults()
-
-        if (res.data.status === "Completed") {
-          clearInterval(interval)
-        }
-      } catch (error) {
-        console.error(error)
-      }
+  const fetchBookStatus = async (refreshResultsIfChanged: boolean = true) => {
+    if (!id || isStatusPollingRef.current) {
+      return
     }
 
-    fetchStatus()
-    
-    // Poll every 3 seconds if processing
+    isStatusPollingRef.current = true
+    try {
+      const res = await axios.get(`${API_URL}/books/${id}/status`)
+      const nextStatus = res.data as BookStatus
+      setBookStatus(nextStatus)
+      currentBookStatusRef.current = nextStatus.status
+
+      const nextKey = buildStatusKey(nextStatus)
+      const changed = nextKey !== lastStatusKeyRef.current
+      if (changed) {
+        lastStatusKeyRef.current = nextKey
+        if (refreshResultsIfChanged) {
+          await fetchResults()
+        }
+      }
+    } catch (error) {
+      console.error(error)
+    } finally {
+      isStatusPollingRef.current = false
+    }
+  }
+
+  useEffect(() => {
+    currentBookStatusRef.current = bookStatus?.status || ""
+  }, [bookStatus?.status])
+
+  useEffect(() => {
+    lastStatusKeyRef.current = ""
+    currentBookStatusRef.current = ""
+
+    const init = async () => {
+      await fetchBookStatus(false)
+      await fetchResults()
+    }
+    init()
+  }, [id])
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>
+
+    // Poll every 3 seconds only while a book is processing.
     interval = setInterval(() => {
-      if (bookStatus?.status !== "Completed" && bookStatus?.status !== "Failed") {
-        fetchStatus()
+      if (currentBookStatusRef.current === "Processing") {
+        fetchBookStatus(true)
       }
     }, 3000)
 
@@ -107,28 +146,59 @@ export function BookDetailsPage() {
       setIsReprocessing(true)
 
       const statusRes = await axios.get(`${API_URL}/books/${id}/status`)
+      setBookStatus(statusRes.data)
+      currentBookStatusRef.current = "Processing"
       const pages = (statusRes.data.pages || [])
         .slice()
         .sort((a: { page_number: number }, b: { page_number: number }) => a.page_number - b.page_number)
 
       for (const page of pages) {
-        if (page.status === "Published") {
+        if (page.status === "Published" || page.status === "Completed") {
           continue
         }
         await axios.post(`${API_URL}/pages/${page.id}/process`)
+        openProcessedPage(page.id, page.page_number)
+        await fetchResults()
       }
 
       setBookStatus(prev => prev ? { ...prev, status: "Processing" } : null)
-      setResults([])
-      await fetchResults()
-      const finalStatusRes = await axios.get(`${API_URL}/books/${id}/status`)
-      setBookStatus(finalStatusRes.data)
+      await fetchBookStatus(true)
     } catch (error) {
       console.error("Failed to reprocess:", error)
     } finally {
       setIsReprocessing(false)
     }
   }
+
+  useEffect(() => {
+    setResumeAttempted(false)
+  }, [id])
+
+  useEffect(() => {
+    const resumeAfterRefresh = async () => {
+      if (!id || resumeAttempted || isReprocessing) {
+        return
+      }
+
+      try {
+        const statusRes = await axios.get(`${API_URL}/books/${id}/status`)
+        setBookStatus(statusRes.data)
+        currentBookStatusRef.current = statusRes.data.status
+        if (statusRes.data.status === "Processing") {
+          setResumeAttempted(true)
+          await handleReprocess()
+          return
+        }
+
+        setResumeAttempted(true)
+      } catch (error) {
+        console.error("Failed to resume processing after refresh:", error)
+        setResumeAttempted(true)
+      }
+    }
+
+    resumeAfterRefresh()
+  }, [id, resumeAttempted, isReprocessing])
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -173,6 +243,10 @@ export function BookDetailsPage() {
     try {
       setSavingPages(prev => ({ ...prev, [pageId]: true }))
       await axios.post(`${API_URL}/pages/${pageId}/process`)
+      const currentPage = results.find((p) => p.id === pageId)
+      if (currentPage) {
+        openProcessedPage(pageId, currentPage.page_number)
+      }
       
       // Refresh results and book status to show "Processing"
       fetchResults()
@@ -194,6 +268,13 @@ export function BookDetailsPage() {
     if (element) {
         element.scrollIntoView({ behavior: 'smooth' })
     }
+  }
+
+  const openProcessedPage = (pageId: string, pageNumber: number) => {
+    setExpandedPageId(pageId)
+    setTimeout(() => {
+      scrollToPage(pageNumber)
+    }, 120)
   }
 
   return (
@@ -340,6 +421,14 @@ export function BookDetailsPage() {
                       </Badge>
                     </div>
                     <div className="flex items-center gap-2">
+                       <Button
+                         size="sm"
+                         variant="ghost"
+                         onClick={() => setExpandedPageId(prev => prev === page.id ? null : page.id)}
+                         title={expandedPageId === page.id ? "إغلاق الصفحة" : "فتح الصفحة"}
+                       >
+                         <ChevronDown className={`h-4 w-4 transition-transform ${expandedPageId === page.id ? "rotate-180" : ""}`} />
+                       </Button>
                        <Button 
                          size="sm" 
                          variant="ghost" 
@@ -363,6 +452,7 @@ export function BookDetailsPage() {
                     </div>
                   </div>
                 </CardHeader>
+                {expandedPageId === page.id ? (
                 <CardContent className="p-0">
                   {isPublished ? (
                     /* Published View - Side by side with original image for reference in UI */
@@ -449,6 +539,7 @@ export function BookDetailsPage() {
                     </div>
                   )}
                 </CardContent>
+                ) : null}
               </Card>
             )
           })

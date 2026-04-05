@@ -2,7 +2,8 @@ import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom"
 import { UploadPage } from "./pages/UploadPage"
 import { DashboardPage } from "./pages/DashboardPage"
 import { BookDetailsPage } from "./pages/BookDetailsPage"
-import { BookOpen, UploadCloud, LayoutDashboard } from "lucide-react"
+import { SettingsPage } from "./pages/SettingsPage"
+import { BookOpen, UploadCloud, LayoutDashboard, SlidersHorizontal } from "lucide-react"
 import { Toaster } from "@/components/ui/toaster"
 
 function App() {
@@ -31,6 +32,13 @@ function App() {
                   <UploadCloud className="h-4 w-4 mr-2" />
                   رفع ملف جديد
                 </Link>
+                <Link
+                  to="/settings"
+                  className="flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <SlidersHorizontal className="h-4 w-4 mr-2" />
+                  الإعدادات
+                </Link>
               </nav>
             </div>
           </div>
@@ -41,6 +49,7 @@ function App() {
             <Route path="/" element={<DashboardPage />} />
             <Route path="/upload" element={<UploadPage />} />
             <Route path="/books/:id" element={<BookDetailsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>
       </div>
