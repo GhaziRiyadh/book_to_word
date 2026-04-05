@@ -37,9 +37,19 @@ export function DashboardPage() {
   const handleReprocess = async (bookId: string) => {
     try {
       setProcessingBookId(bookId)
-      await axios.post(`${API_URL}/books/${bookId}/process`, null, {
-        params: { background: true }
-      })
+
+      const statusRes = await axios.get(`${API_URL}/books/${bookId}/status`)
+      const pages = (statusRes.data.pages || [])
+        .slice()
+        .sort((a: { page_number: number }, b: { page_number: number }) => a.page_number - b.page_number)
+
+      for (const page of pages) {
+        if (page.status === "Published") {
+          continue
+        }
+        await axios.post(`${API_URL}/pages/${page.id}/process`)
+      }
+
       await fetchBooks()
     } catch (error) {
       console.error("Failed to reprocess book", error)
