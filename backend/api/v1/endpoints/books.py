@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Q
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from typing import List
 import os
 import re
@@ -120,17 +121,17 @@ async def get_book_status(book_id: str, db: AsyncSession = Depends(get_async_db)
 
 @router.get("/{book_id}/results")
 async def get_book_results(book_id: str, db: AsyncSession = Depends(get_async_db)):
-    result = await db.execute(select(Page).where(Page.book_id == book_id).order_by(Page.page_number))
+    result = await db.execute(
+        select(Page)
+        .where(Page.book_id == book_id)
+        .options(selectinload(Page.ocr_results))
+        .order_by(Page.page_number)
+    )
     pages = result.scalars().all()
     
     results = []
     for page in pages:
-        ocr_res = await db.execute(
-            select(OCRResult)
-            .where(OCRResult.page_id == page.id)
-            .order_by(OCRResult.created_at.desc())
-        )
-        ocr_data = ocr_res.scalars().first()
+        ocr_data = page.ocr_results[0] if page.ocr_results else None
         text = ocr_data.extracted_text if ocr_data else ""
         confidence = ocr_data.confidence_score if ocr_data else 0.0
         
@@ -171,27 +172,35 @@ async def search_book(book_id: str, query: str, db: AsyncSession = Depends(get_a
     )
     rows = result.all()
     
-    scored_results = []
+    scored_map = {}
     for page, ocr in rows:
         if ocr.embedding:
             page_vec = np.frombuffer(ocr.embedding, dtype='float32')
-            score = cosine_similarity(query_vec, page_vec)
+            score = float(cosine_similarity(query_vec, page_vec))
             
             if score > 0.4:
-                scored_results.append({
-                    "id": page.id,
-                    "page_number": page.page_number,
-                    "extracted_text": ocr.extracted_text[:300] + "...",
-                    "score": float(score),
-                    "status": page.status
-                })
+                # If multiple OCR results exist, keep the one with higher similarity
+                if page.id not in scored_map or score > scored_map[page.id]["score"]:
+                    scored_map[page.id] = {
+                        "id": page.id,
+                        "page_number": page.page_number,
+                        "extracted_text": (ocr.extracted_text[:300] + "...") if ocr.extracted_text else "",
+                        "score": score,
+                        "status": page.status
+                    }
     
+    scored_results = list(scored_map.values())
     scored_results.sort(key=lambda x: x["score"], reverse=True)
     return {"results": scored_results[:10]}
 
 @router.get("/{book_id}/export")
 async def export_book_results(book_id: str, db: AsyncSession = Depends(get_async_db)):
-    result = await db.execute(select(Page).where(Page.book_id == book_id).order_by(Page.page_number))
+    result = await db.execute(
+        select(Page)
+        .where(Page.book_id == book_id)
+        .options(selectinload(Page.ocr_results))
+        .order_by(Page.page_number)
+    )
     pages = result.scalars().all()
 
     book = await db.get(Book, book_id)
@@ -201,8 +210,7 @@ async def export_book_results(book_id: str, db: AsyncSession = Depends(get_async
     document.add_heading(book_title, level=1)
 
     for page in pages:
-        ocr_res = await db.execute(select(OCRResult).where(OCRResult.page_id == page.id))
-        ocr_data = ocr_res.scalar_one_or_none()
+        ocr_data = page.ocr_results[0] if page.ocr_results else None
         if ocr_data and ocr_data.extracted_text:
             document.add_heading(f"صفحة {page.page_number}", level=2)
             plain_text = _to_plain_text(ocr_data.extracted_text)
