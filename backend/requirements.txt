@@ -95,3 +95,5 @@ urllib3==2.6.3
 uvicorn==0.42.0
 wcwidth==0.6.0
 ollama==0.4.7
+alembic==1.15.1
+pydantic-settings==2.8.1
