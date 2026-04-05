@@ -1,31 +1,35 @@
 import os
 import logging
 import asyncio
+import threading
 import traceback
-import aiofiles
 import datetime
 import re
 import numpy as np
 from dotenv import load_dotenv
 from pdf2image import convert_from_path
-import google.generativeai as genai
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from models import Book, Page, OCRResult
 from database import AsyncSessionLocal
+from core.config import settings
 
 load_dotenv()
 
 from adapters.factory import AdapterFactory
+from adapters.hf_adapter import prefetch_huggingface_model
 
 load_dotenv()
 
 POPPLER_PATH = os.getenv("POPPLER_PATH", None)
 
 # Configure logging
+_log_level_name = (settings.LOG_LEVEL or "INFO").upper()
+_log_level = getattr(logging, _log_level_name, logging.INFO)
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=_log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler("backend_ocr.log"),
@@ -33,14 +37,74 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("ocr_service")
+logger.info("Logger initialized with LOG_LEVEL=%s", _log_level_name)
 
-# Initialize AI Adapter via Factory
-try:
-    ai_adapter = AdapterFactory.get_adapter()
-    logger.info(f"AI Adapter ({os.getenv('AI_PROVIDER', 'gemini')}) configured successfully.")
-except Exception as e:
-    logger.critical(f"Failed to initialize AI Adapter: {e}")
-    ai_adapter = None
+ai_adapter = None
+_adapter_error = None
+_adapter_init_lock = asyncio.Lock()
+_adapter_init_sync_lock = threading.Lock()
+_hf_prefetch_attempted = False
+
+
+def _initialize_ai_adapter():
+    global ai_adapter, _adapter_error
+    provider = os.getenv("AI_PROVIDER", "gemini")
+    try:
+        ai_adapter = AdapterFactory.get_adapter()
+        _adapter_error = None
+        logger.info(f"AI Adapter ({provider}) configured successfully.")
+    except Exception as e:
+        ai_adapter = None
+        _adapter_error = str(e)
+        logger.critical(f"Failed to initialize AI Adapter ({provider}): {_adapter_error}")
+
+
+async def _ensure_ai_adapter_ready() -> bool:
+    global ai_adapter
+    if ai_adapter is not None:
+        return True
+
+    async with _adapter_init_lock:
+        # Another coroutine might have initialized while waiting.
+        if ai_adapter is not None:
+            return True
+        _initialize_ai_adapter()
+        return ai_adapter is not None
+
+
+def get_adapter_health() -> dict:
+    global _hf_prefetch_attempted
+    provider = os.getenv("AI_PROVIDER", "gemini").lower()
+
+    # Health checks proactively verify HuggingFace model availability and
+    # initialization state before OCR tasks are queued.
+    if provider == "huggingface" and ai_adapter is None:
+        with _adapter_init_sync_lock:
+            if not _hf_prefetch_attempted:
+                _hf_prefetch_attempted = True
+                try:
+                    token = None if settings.HF_OFFLINE_MODE else (settings.HF_TOKEN or None)
+                    prefetch_huggingface_model(
+                        settings.HF_MODEL_ID,
+                        token=token,
+                        local_files_only=settings.HF_OFFLINE_MODE,
+                    )
+                except Exception as prefetch_error:
+                    logger.error("HuggingFace model prefetch failed during health check: %s", prefetch_error)
+
+            if ai_adapter is None:
+                logger.info("Health check requested. Attempting HuggingFace adapter initialization.")
+                _initialize_ai_adapter()
+
+    return {
+        "provider": provider,
+        "ready": ai_adapter is not None,
+        "last_error": _adapter_error,
+    }
+
+
+# Initialize once on import; tasks can still retry if startup initialization fails.
+_initialize_ai_adapter()
 
 DEFAULT_PROMPT = (
     "استخرج النص العربي من هذه الصورة بدقة تامة وحوله إلى تنسيق HTML نظيف ومبسط. "
@@ -115,8 +179,15 @@ async def process_document_task(book_id: str):
     """
     Background task to process all pages of a book.
     """
-    if not ai_adapter:
-        logger.error("AI Adapter not initialized. Cannot process task.")
+    adapter_ready = await _ensure_ai_adapter_ready()
+    if not adapter_ready:
+        reason = _adapter_error or "Unknown adapter initialization error"
+        logger.error(f"AI Adapter not initialized. Cannot process task. Reason: {reason}")
+        async with AsyncSessionLocal() as fail_db:
+            book = await fail_db.get(Book, book_id)
+            if book:
+                book.status = "Failed"
+                await fail_db.commit()
         return
 
     logger.info(f"Starting OCR task for book ID: {book_id}")
@@ -135,8 +206,15 @@ async def process_document_task(book_id: str):
                 select(Page).where(Page.book_id == book_id).order_by(Page.page_number)
             )
             pages = result.scalars().all()
+            pages_to_process = [p for p in pages if p.status != "Published"]
 
-            for page in pages:
+            if not pages_to_process:
+                logger.info("No OCR work required for book %s: all pages are already Published.", book_id)
+                book.status = "Completed"
+                await db.commit()
+                return
+
+            for page in pages_to_process:
                 try:
                     page.status = "Processing"
                     await db.commit()
@@ -167,8 +245,15 @@ async def process_single_page_task(page_id: str):
     """
     Background task to re-process a single page.
     """
-    if not ai_adapter:
-        logger.error("AI Adapter not initialized.")
+    adapter_ready = await _ensure_ai_adapter_ready()
+    if not adapter_ready:
+        reason = _adapter_error or "Unknown adapter initialization error"
+        logger.error(f"AI Adapter not initialized. Cannot process page. Reason: {reason}")
+        async with AsyncSessionLocal() as fail_db:
+            page = await fail_db.get(Page, page_id)
+            if page:
+                page.status = "Failed"
+                await fail_db.commit()
         return
 
     logger.info(f"Starting single-page OCR task for ID: {page_id}")
@@ -178,6 +263,10 @@ async def process_single_page_task(page_id: str):
             page = await db.get(Page, page_id)
             if not page:
                 logger.error(f"Page {page_id} not found.")
+                return
+
+            if page.status == "Published":
+                logger.info("Skipping OCR for published page: %s", page_id)
                 return
             
             page.status = "Processing"

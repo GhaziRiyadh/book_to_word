@@ -25,7 +25,7 @@ class Page(Base):
     status = Column(String, default="Pending")
 
     book = relationship("Book", back_populates="pages", lazy="selectin")
-    ocr_result = relationship("OCRResult", back_populates="page", uselist=False, lazy="selectin")
+    ocr_results = relationship("OCRResult", back_populates="page", lazy="selectin", order_by="OCRResult.created_at.desc()")
 
 class OCRResult(Base):
     __tablename__ = "ocr_results"
@@ -37,4 +37,4 @@ class OCRResult(Base):
     embedding = Column(LargeBinary, nullable=True)  # Store vector as binary
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-    page = relationship("Page", back_populates="ocr_result", lazy="selectin")
+    page = relationship("Page", back_populates="ocr_results", lazy="selectin")

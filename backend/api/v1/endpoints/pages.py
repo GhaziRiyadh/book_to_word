@@ -55,6 +55,12 @@ async def reprocess_page(
     page = await db.get(Page, page_id)
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
+
+    if page.status == "Published":
+        return {
+            "message": "Page is published and was skipped",
+            "status": page.status,
+        }
     
     # Process in background
     import asyncio

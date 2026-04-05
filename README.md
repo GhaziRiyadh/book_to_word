@@ -8,7 +8,7 @@ An open-source, AI-powered system designed to convert Arabic books (PDF/Images) 
 
 ## 🌟 Key Features
 
-- **Multi-AI Adapter System**: Seamlessly switch between **Gemini** and **Ollama (Offline)** via environment variables.
+- **Multi-AI Adapter System**: Seamlessly switch between **Gemini**, **Ollama (Offline)**, **HuggingFace (Offline Local Cache)**, and **OpenRouter (Hosted)** via environment variables.
 - **Real-Time Progress Tracking**: Monitor the OCR process page-by-page with a global progress bar.
 - **Human-in-the-Loop Editing**: Review and correct extracted text side-by-side with the original scan.
 - **Professional Scientific Layout**: 
@@ -22,7 +22,7 @@ An open-source, AI-powered system designed to convert Arabic books (PDF/Images) 
 
 - **Backend**: FastAPI (Python), SQLAlchemy (Async), SQLite.
 - **Frontend**: React (Vite), Tailwind CSS, Lucide Icons, Shadcn UI components.
-- **AI Integration**: Google Generative AI, Ollama (Local API).
+- **AI Integration**: Google Generative AI, Ollama (Local API), HuggingFace Transformers (Local), OpenRouter API (Hosted).
 - **Document Processing**: Poppler (via `pdf2image`), Pillow.
 
 ## 🚀 Getting Started
@@ -62,7 +62,7 @@ An open-source, AI-powered system designed to convert Arabic books (PDF/Images) 
 Create a `.env` file in the `backend` directory based on `.env.example`:
 
 ```env
-# AI Provider (gemini, ollama)
+# AI Provider (gemini, ollama, huggingface, openrouter)
 AI_PROVIDER=gemini
 
 # API Keys
@@ -71,6 +71,19 @@ GEMINI_API_KEY=your_gemini_key
 # Ollama (Offline OCR)
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.2-vision
+
+# OpenRouter (Hosted OCR - Gemma 3 12B)
+OPENROUTER_API_KEY=your_openrouter_key
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=google/gemma-3-12b-it
+OPENROUTER_HTTP_REFERER=
+OPENROUTER_TITLE=Book to Word OCR
+
+# HuggingFace (Offline OCR from local cache)
+HF_MODEL_ID=meta-llama/Llama-3.2-11B-Vision-Instruct
+HF_OFFLINE_MODE=true
+# Optional when using private repos online. Not required in offline mode.
+HF_TOKEN=
 
 # Optional: Poppler Path (if not in PATH)
 # POPPLER_PATH=C:\path\to\poppler\bin

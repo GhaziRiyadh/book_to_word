@@ -1,4 +1,3 @@
-import base64
 import asyncio
 import random
 import logging
@@ -15,6 +14,12 @@ class OllamaAdapter(AIAdapter):
         self.model_name = model_name
         self.embed_model = embed_model
         self.client = ollama.AsyncClient(host=self.host)
+        logger.info(
+            "Ollama adapter initialized host=%s model=%s embed_model=%s",
+            self.host,
+            self.model_name,
+            self.embed_model,
+        )
 
     async def _retry_request(self, func, *args, **kwargs):
         """
@@ -25,6 +30,7 @@ class OllamaAdapter(AIAdapter):
         
         for i in range(max_retries):
             try:
+                logger.debug("Ollama request attempt %s/%s", i + 1, max_retries)
                 return await func(*args, **kwargs)
             except Exception as e:
                 error_str = str(e).lower()
@@ -42,6 +48,11 @@ class OllamaAdapter(AIAdapter):
         raise Exception(f"Failed after {max_retries} retries due to rate limits.")
 
     async def process_image(self, image: Image.Image, prompt: str) -> str:
+        logger.debug(
+            "Ollama process_image started prompt_len=%s image_size=%s",
+            len(prompt or ""),
+            image.size,
+        )
         # Convert PIL image to bytes
         buffered = BytesIO()
         image.save(buffered, format="PNG")
@@ -61,9 +72,12 @@ class OllamaAdapter(AIAdapter):
             )
             return response.get("message", {}).get("content", "").strip()
 
-        return await self._retry_request(_do_chat)
+        result = await self._retry_request(_do_chat)
+        logger.debug("Ollama process_image completed output_len=%s", len(result))
+        return result
 
     async def get_embedding(self, text: str) -> list[float]:
+        logger.debug("Ollama embedding request text_len=%s", len(text or ""))
         async def _do_embeddings():
             response = await self.client.embeddings(
                 model=self.embed_model,
@@ -72,7 +86,10 @@ class OllamaAdapter(AIAdapter):
             return response.get("embedding", [])
 
         try:
-            return await self._retry_request(_do_embeddings)
+            embedding = await self._retry_request(_do_embeddings)
+            logger.debug("Ollama embedding response dim=%s", len(embedding))
+            return embedding
         except Exception:
             # For embeddings, we fail silently to not break the whole OCR task
+            logger.warning("Ollama embedding failed; returning empty vector")
             return []
