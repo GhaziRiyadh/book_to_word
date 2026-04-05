@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -49,6 +49,7 @@ async def update_page_ocr(
 @router.post("/{page_id}/process")
 async def reprocess_page(
     page_id: str,
+    background: bool = Query(False),
     db: AsyncSession = Depends(get_async_db)
 ):
     from services import process_single_page_task
@@ -62,8 +63,11 @@ async def reprocess_page(
             "status": page.status,
         }
     
-    # Process in background
-    import asyncio
-    asyncio.create_task(process_single_page_task(page_id))
-    
-    return {"message": "Page reprocessing started in background", "status": "Processing"}
+    if background:
+        # Process in background only when explicitly requested.
+        import asyncio
+        asyncio.create_task(process_single_page_task(page_id))
+        return {"message": "Page reprocessing started in background", "status": "Processing", "background": True}
+
+    await process_single_page_task(page_id)
+    return {"message": "Page reprocessing completed", "status": "Completed", "background": False}

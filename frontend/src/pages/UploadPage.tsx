@@ -13,6 +13,7 @@ export function UploadPage() {
   const [title, setTitle] = useState("")
   const [files, setFiles] = useState<FileList | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [progressText, setProgressText] = useState("")
   const navigate = useNavigate()
   const { toast } = useToast()
 
@@ -29,20 +30,39 @@ export function UploadPage() {
     }
 
     try {
+      setProgressText("جاري رفع الملفات...")
       const res = await axios.post(`${API_URL}/books/upload`, formData, {
         headers: { "Content-Type": "multipart/form-data" }
       })
       
       const bookId = res.data.book_id
-      
-      // Trigger processing
-      await axios.post(`${API_URL}/books/${bookId}/process`)
+
+      // Sequential front-end driven processing: process each page after previous completes.
+      const statusRes = await axios.get(`${API_URL}/books/${bookId}/status`)
+      const pages = (statusRes.data.pages || [])
+        .slice()
+        .sort((a: { page_number: number }, b: { page_number: number }) => a.page_number - b.page_number)
+
+      let processedCount = 0
+      const totalPages = pages.length
+      for (const page of pages) {
+        if (page.status === "Published") {
+          processedCount += 1
+          continue
+        }
+
+        setProgressText(`جاري معالجة الصفحة ${page.page_number} من ${totalPages}...`)
+        await axios.post(`${API_URL}/pages/${page.id}/process`, null, {
+          params: { background: false }
+        })
+        processedCount += 1
+      }
 
       toast({
         title: "تم الرفع بنجاح",
-        description: "تم بدء معالجة الكتاب. سيتم تحويلك للوحة التحكم.",
+        description: `اكتملت معالجة ${processedCount} صفحة بنجاح.`,
       })
-      navigate("/")
+      navigate(`/books/${bookId}`)
     } catch (error) {
       console.error(error)
       toast({
@@ -88,10 +108,13 @@ export function UploadPage() {
               />
               <p className="text-xs text-muted-foreground mt-1">يمكنك تحديد ملف PDF واحد أو عدة صور معاً.</p>
             </div>
+            {uploading && progressText ? (
+              <p className="text-sm text-muted-foreground">{progressText}</p>
+            ) : null}
           </CardContent>
           <CardFooter>
             <Button type="submit" className="w-full" disabled={uploading}>
-              {uploading ? "جاري الرفع..." : "رفع وبدء المعالجة"}
+              {uploading ? "جاري التنفيذ..." : "رفع وبدء المعالجة"}
             </Button>
           </CardFooter>
         </form>

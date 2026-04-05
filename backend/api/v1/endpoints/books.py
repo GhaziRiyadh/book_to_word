@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -68,13 +68,22 @@ async def upload_book(
     return {"message": "Files received successfully", "book_id": book.id, "pages_count": len(saved_paths)}
 
 @router.post("/{book_id}/process")
-async def process_book(book_id: str, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_async_db)):
+async def process_book(
+    book_id: str,
+    background_tasks: BackgroundTasks,
+    background: bool = Query(False),
+    db: AsyncSession = Depends(get_async_db),
+):
     book = await db.get(Book, book_id)
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
-        
-    background_tasks.add_task(process_document_task, book_id)
-    return {"message": "Processing started", "book_id": book_id}
+
+    if background:
+        background_tasks.add_task(process_document_task, book_id)
+        return {"message": "Processing started in background", "book_id": book_id, "background": True}
+
+    await process_document_task(book_id)
+    return {"message": "Processing completed", "book_id": book_id, "background": False}
 
 @router.get("/{book_id}/status")
 async def get_book_status(book_id: str, db: AsyncSession = Depends(get_async_db)):

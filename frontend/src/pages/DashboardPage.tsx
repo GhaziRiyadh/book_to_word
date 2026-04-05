@@ -37,7 +37,9 @@ export function DashboardPage() {
   const handleReprocess = async (bookId: string) => {
     try {
       setProcessingBookId(bookId)
-      await axios.post(`${API_URL}/books/${bookId}/process`)
+      await axios.post(`${API_URL}/books/${bookId}/process`, null, {
+        params: { background: true }
+      })
       await fetchBooks()
     } catch (error) {
       console.error("Failed to reprocess book", error)

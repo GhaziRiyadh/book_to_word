@@ -105,7 +105,9 @@ export function BookDetailsPage() {
   const handleReprocess = async () => {
     try {
       setIsReprocessing(true)
-      await axios.post(`${API_URL}/books/${id}/process`)
+      await axios.post(`${API_URL}/books/${id}/process`, null, {
+        params: { background: true }
+      })
       setBookStatus(prev => prev ? { ...prev, status: "Processing" } : null)
       setResults([])
     } catch (error) {
@@ -157,7 +159,9 @@ export function BookDetailsPage() {
   const handleRegeneratePage = async (pageId: string) => {
     try {
       setSavingPages(prev => ({ ...prev, [pageId]: true }))
-      await axios.post(`${API_URL}/pages/${pageId}/process`)
+      await axios.post(`${API_URL}/pages/${pageId}/process`, null, {
+        params: { background: true }
+      })
       
       // Refresh results and book status to show "Processing"
       fetchResults()
