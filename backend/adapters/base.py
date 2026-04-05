@@ -9,3 +9,10 @@ class AIAdapter(ABC):
         Processes an image and returns the extracted text.
         """
         pass
+
+    @abstractmethod
+    async def get_embedding(self, text: str) -> list[float]:
+        """
+        Generates an embedding vector for the given text.
+        """
+        pass

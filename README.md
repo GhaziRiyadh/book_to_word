@@ -8,20 +8,21 @@ An open-source, AI-powered system designed to convert Arabic books (PDF/Images) 
 
 ## 🌟 Key Features
 
-- **Multi-AI Adapter System**: Seamlessly switch between **Gemini**, **OpenAI (GPT-4o)**, **DeepSeek**, and **Ollama (Offline)** via environment variables.
+- **Multi-AI Adapter System**: Seamlessly switch between **Gemini** and **Ollama (Offline)** via environment variables.
 - **Real-Time Progress Tracking**: Monitor the OCR process page-by-page with a global progress bar.
 - **Human-in-the-Loop Editing**: Review and correct extracted text side-by-side with the original scan.
 - **Professional Scientific Layout**: 
   - One-click transformation from raw OCR to a formatted book page.
   - Optimized for **A4 printing** with proper margins and borders.
   - High-quality Arabic typography using **Cairo** for UI and **IBM Plex Sans Arabic** for print.
+- **Semantic Search**: Find concepts and meanings within your books using local or cloud embeddings.
 - **HTML-Rich Extraction**: Supports bold, italic, and heading structures directly from the AI output.
 
 ## 🛠 Tech Stack
 
 - **Backend**: FastAPI (Python), SQLAlchemy (Async), SQLite.
 - **Frontend**: React (Vite), Tailwind CSS, Lucide Icons, Shadcn UI components.
-- **AI Integration**: Google Generative AI, OpenAI SDK, Ollama (Local API).
+- **AI Integration**: Google Generative AI, Ollama (Local API).
 - **Document Processing**: Poppler (via `pdf2image`), Pillow.
 
 ## 🚀 Getting Started
@@ -61,13 +62,11 @@ An open-source, AI-powered system designed to convert Arabic books (PDF/Images) 
 Create a `.env` file in the `backend` directory based on `.env.example`:
 
 ```env
-# AI Provider (gemini, openai, deepseek, ollama)
+# AI Provider (gemini, ollama)
 AI_PROVIDER=gemini
 
 # API Keys
 GEMINI_API_KEY=your_gemini_key
-OPENAI_API_KEY=your_openai_key
-DEEPSEEK_API_KEY=your_deepseek_key
 
 # Ollama (Offline OCR)
 OLLAMA_BASE_URL=http://localhost:11434

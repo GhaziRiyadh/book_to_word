@@ -37,6 +37,11 @@ export function BookDetailsPage() {
   const [editingTexts, setEditingTexts] = useState<Record<string, string>>({})
   const [savingPages, setSavingPages] = useState<Record<string, boolean>>({})
   
+  // Search State
+  const [searchQuery, setSearchQuery] = useState("")
+  const [isSearching, setIsSearching] = useState(false)
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  
   const fetchResults = async () => {
     try {
       const res = await axios.get(`${API_URL}/books/${id}/results`)
@@ -110,6 +115,27 @@ export function BookDetailsPage() {
     }
   }
 
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) {
+      setIsSearching(false)
+      setSearchResults([])
+      return
+    }
+
+    try {
+      setIsSearching(true)
+      const res = await axios.get(`${API_URL}/books/${id}/search`, {
+        params: { query: searchQuery }
+      })
+      setSearchResults(res.data.results)
+    } catch (error) {
+      console.error("Search failed:", error)
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
   const handlePublishPage = async (pageId: string, status: string = "Published") => {
     try {
       setSavingPages(prev => ({ ...prev, [pageId]: true }))
@@ -132,30 +158,59 @@ export function BookDetailsPage() {
     setEditingTexts(prev => ({ ...prev, [pageId]: text }))
   }
 
+  const scrollToPage = (pageNumber: number) => {
+    const element = document.getElementById(`page-${pageNumber}`)
+    if (element) {
+        element.scrollIntoView({ behavior: 'smooth' })
+    }
+  }
+
   return (
     <div className="space-y-6 pb-20">
-      <div className="flex justify-between items-center print:hidden">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:hidden">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">تفاصيل الكتاب</h1>
-          <p className="text-muted-foreground mt-1">إدارة الصفحات، مراجعة النصوص، والطباعة العلمية</p>
+          <p className="text-muted-foreground mt-1">إدارة الصفحات، مراجعة النصوص، والبحث الذكي</p>
         </div>
-        <div className="space-x-2 space-x-reverse flex">
-           <Button
-             variant="secondary"
-             onClick={handleReprocess}
-             disabled={bookStatus?.status === "Processing" || isReprocessing}
-           >
-             <RefreshCw className={`h-4 w-4 ml-2 ${isReprocessing || bookStatus?.status === "Processing" ? "animate-spin" : ""}`} />
-             {isReprocessing ? "جاري البدء..." : "إعادة المعالجة"}
-           </Button>
-           <Button variant="outline" onClick={handlePrint}>
-             <Printer className="h-4 w-4 ml-2" />
-             طباعة
-           </Button>
-           <Button onClick={handleExport}>
-             <Download className="h-4 w-4 ml-2" />
-             تصدير نصي
-           </Button>
+        
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+          {/* Search Bar */}
+          <form onSubmit={handleSearch} className="relative flex-1 min-w-[300px]">
+             <input 
+               type="text" 
+               placeholder="بحث دلالي في محتوى الكتاب..." 
+               value={searchQuery}
+               onChange={(e) => setSearchQuery(e.target.value)}
+               className="w-full h-10 pr-10 pl-4 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+             />
+             <Button 
+               type="submit" 
+               variant="ghost" 
+               size="sm" 
+               className="absolute right-0 top-0 h-10 px-3 hover:bg-transparent"
+             >
+               {isSearching && searchQuery ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+             </Button>
+          </form>
+
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              onClick={handleReprocess}
+              disabled={bookStatus?.status === "Processing" || isReprocessing}
+            >
+              <RefreshCw className={`h-4 w-4 ml-2 ${isReprocessing || bookStatus?.status === "Processing" ? "animate-spin" : ""}`} />
+              {isReprocessing ? "جاري..." : "إعادة المعالجة"}
+            </Button>
+            <Button variant="outline" onClick={handlePrint}>
+              <Printer className="h-4 w-4 ml-2" />
+              طباعة
+            </Button>
+            <Button onClick={handleExport}>
+              <Download className="h-4 w-4 ml-2" />
+              تصدير
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -172,6 +227,38 @@ export function BookDetailsPage() {
           <Progress value={bookStatus?.progress_percent || 0} className="h-3" />
         </CardContent>
       </Card>
+
+      {/* Search Results Section */}
+      {searchResults.length > 0 && (
+        <Card className="border-blue-200 bg-blue-50/30 print:hidden overflow-hidden">
+          <CardHeader className="bg-blue-100/50 py-3 flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-sm">نتائج البحث الدلالي</CardTitle>
+              <CardDescription className="text-xs">تم العثور على {searchResults.length} صفحات ذات صلة</CardDescription>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setSearchResults([])}>× إغلاق</Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="max-h-[300px] overflow-y-auto divide-y divide-blue-100">
+              {searchResults.map((result) => (
+                <div 
+                  key={result.id} 
+                  className="p-3 hover:bg-blue-100/50 cursor-pointer transition-colors"
+                  onClick={() => scrollToPage(result.page_number)}
+                >
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="font-bold text-xs bg-blue-600 text-white px-2 py-0.5 rounded">صفحة {result.page_number}</span>
+                    <Badge variant="secondary" className="text-[10px]">مطابقة: {Math.round(result.score * 100)}%</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground line-clamp-2" dir="rtl">
+                    {result.extracted_text}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {bookStatus?.status === "Failed" && (
         <Card className="border-red-500 bg-red-50 print:hidden">
@@ -208,7 +295,11 @@ export function BookDetailsPage() {
             const isPublished = page.status === "Published"
 
             return (
-              <Card key={page.id} className={`overflow-hidden transition-all duration-300 ${isProcessing ? "border-blue-200 shadow-md ring-1 ring-blue-100" : ""} print:shadow-none print:border-none print:mb-0 print:break-after-page`}>
+              <Card 
+                key={page.id} 
+                id={`page-${page.page_number}`}
+                className={`overflow-hidden transition-all duration-300 ${isProcessing ? "border-blue-200 shadow-md ring-1 ring-blue-100" : ""} print:shadow-none print:border-none print:mb-0 print:break-after-page`}
+              >
                 <CardHeader className="bg-muted/30 px-6 py-4 print:hidden border-b">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-3">

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, LargeBinary
 from sqlalchemy.orm import relationship
 import datetime
 import uuid
@@ -34,6 +34,7 @@ class OCRResult(Base):
     page_id = Column(String, ForeignKey("pages.id"))
     extracted_text = Column(Text, nullable=True)
     confidence_score = Column(Float, nullable=True)
+    embedding = Column(LargeBinary, nullable=True)  # Store vector as binary
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     page = relationship("Page", back_populates="ocr_result", lazy="selectin")

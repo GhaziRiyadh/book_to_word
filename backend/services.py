@@ -100,6 +100,17 @@ async def process_document_task(book_id: str):
                         extracted_text = extracted_text.strip()
                     
                     confidence = 1.0 if extracted_text else 0.0
+                    
+                    # Generate embedding for semantic search
+                    embedding_vector = []
+                    if extracted_text:
+                        try:
+                            embedding_vector = await ai_adapter.get_embedding(extracted_text)
+                        except Exception as ee:
+                            logger.error(f"Embedding generation failed: {ee}")
+                    
+                    import numpy as np
+                    embedding_binary = np.array(embedding_vector, dtype='float32').tobytes() if embedding_vector else None
 
                     # Check for existing OCR result and update it if it exists (upsert)
                     res = await db.execute(
@@ -112,12 +123,14 @@ async def process_document_task(book_id: str):
                     if ocr_record:
                         ocr_record.extracted_text = extracted_text
                         ocr_record.confidence_score = confidence
+                        ocr_record.embedding = embedding_binary
                         ocr_record.created_at = datetime.datetime.utcnow()
                     else:
                         ocr_record = OCRResult(
                             page_id=page.id,
                             extracted_text=extracted_text,
-                            confidence_score=confidence
+                            confidence_score=confidence,
+                            embedding=embedding_binary
                         )
                         db.add(ocr_record)
 

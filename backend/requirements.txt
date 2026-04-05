@@ -43,7 +43,6 @@ mdurl==0.1.2
 modelscope==1.35.0
 networkx==3.6.1
 numpy==2.4.3
-openai==2.29.0
 opencv-contrib-python==4.10.0.84
 opencv-python-headless==4.13.0.92
 opt-einsum==3.3.0

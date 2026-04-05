@@ -6,11 +6,13 @@ from typing import List
 import os
 import shutil
 import aiofiles
+import numpy as np
 
 from fastapi.staticfiles import StaticFiles
 from database import engine, Base, get_async_db
 from models import Book, Page, OCRResult
 from services import handle_pdf_upload, process_document_task
+from adapters.factory import AdapterFactory
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
@@ -37,6 +39,16 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # Serve uploaded images statically
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+def cosine_similarity(a, b):
+    if a is None or b is None:
+        return 0.0
+    dot_product = np.dot(a, b)
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(dot_product / (norm_a * norm_b))
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the Arabic OCR System API"}
@@ -47,7 +59,6 @@ async def get_all_books(db: AsyncSession = Depends(get_async_db)):
     books = result.scalars().all()
     return {"books": [{"id": b.id, "title": b.title, "status": b.status, "created_at": b.created_at} for b in books]}
 
-# Basic placeholders for the endpoints
 @app.post("/api/v1/books/upload")
 async def upload_book(
     title: str = Form(...),
@@ -159,6 +170,50 @@ async def get_book_results(book_id: str, db: AsyncSession = Depends(get_async_db
         "results": results
     }
 
+@app.get("/api/v1/books/{book_id}/search")
+async def search_book(book_id: str, query: str, db: AsyncSession = Depends(get_async_db)):
+    if not query:
+        return {"results": []}
+
+    # Generate embedding for the search query
+    try:
+        ai_adapter = AdapterFactory.get_adapter()
+        query_embedding = await ai_adapter.get_embedding(query)
+        if not query_embedding:
+            return {"results": [], "error": "Could not generate query embedding"}
+        query_vec = np.array(query_embedding, dtype='float32')
+    except Exception as e:
+        return {"results": [], "error": str(e)}
+
+    # Fetch all pages for the book with their OCR results (including embeddings)
+    result = await db.execute(
+        select(Page, OCRResult)
+        .join(OCRResult, Page.id == OCRResult.page_id)
+        .where(Page.book_id == book_id)
+    )
+    rows = result.all()
+    
+    scored_results = []
+    for page, ocr in rows:
+        if ocr.embedding:
+            page_vec = np.frombuffer(ocr.embedding, dtype='float32')
+            score = cosine_similarity(query_vec, page_vec)
+            
+            # Threshold for relevance
+            if score > 0.4:
+                scored_results.append({
+                    "id": page.id,
+                    "page_number": page.page_number,
+                    "extracted_text": ocr.extracted_text[:300] + "...", # Preview
+                    "score": float(score),
+                    "status": page.status
+                })
+    
+    # Sort by score descending
+    scored_results.sort(key=lambda x: x["score"], reverse=True)
+    
+    return {"results": scored_results[:10]}
+
 @app.put("/api/v1/pages/{page_id}/ocr")
 async def update_page_ocr(
     page_id: str,
@@ -178,6 +233,7 @@ async def update_page_ocr(
         db.add(ocr_data)
     else:
         ocr_data.extracted_text = extracted_text
+        # Optional: Trigger re-embedding if manual edit happened
     
     page.status = status
     await db.commit()
@@ -189,14 +245,13 @@ async def update_page_ocr(
     if all(p.status in ["Completed", "Published"] for p in all_pages):
         book = await db.get(Book, book_id)
         if book:
-            book.status = "Completed" # Or "Published" if all are published
+            book.status = "Completed"
             await db.commit()
 
     return {"message": "OCR updated successfully", "status": page.status}
 
 @app.get("/api/v1/books/{book_id}/export")
 async def export_book_results(book_id: str, format: str = "txt", db: AsyncSession = Depends(get_async_db)):
-    # Simple TXT export for now
     result = await db.execute(select(Page).where(Page.book_id == book_id).order_by(Page.page_number))
     pages = result.scalars().all()
     
@@ -208,7 +263,6 @@ async def export_book_results(book_id: str, format: str = "txt", db: AsyncSessio
             full_text += f"\n--- صفحة {page.page_number} ---\n"
             full_text += ocr_data.extracted_text + "\n"
             
-    # Return as file
     export_path = os.path.join(UPLOAD_DIR, f"{book_id}_export.txt")
     with open(export_path, "w", encoding="utf-8") as f:
         f.write(full_text)
