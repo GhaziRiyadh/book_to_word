@@ -18,10 +18,13 @@ class Settings(BaseSettings):
     AI_PROVIDER: str = os.getenv("AI_PROVIDER", "gemini").lower()
     
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "models/gemini-2.0-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
     
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2-vision")
+    
+    # HuggingFace
+    HF_MODEL_ID: str = os.getenv("HF_MODEL_ID", "meta-llama/Llama-3.2-11B-Vision-Instruct")
 
     class Config:
         case_sensitive = True

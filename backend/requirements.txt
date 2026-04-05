@@ -97,3 +97,9 @@ wcwidth==0.6.0
 ollama==0.4.7
 alembic==1.15.1
 pydantic-settings==2.8.1
+transformers
+torch
+torchvision
+accelerate
+bitsandbytes
+tiktoken
