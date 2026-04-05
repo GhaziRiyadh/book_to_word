@@ -18,8 +18,12 @@ async def update_page_ocr(
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
     
-    ocr_res = await db.execute(select(OCRResult).where(OCRResult.page_id == page_id))
-    ocr_data = ocr_res.scalar_one_or_none()
+    ocr_res = await db.execute(
+        select(OCRResult)
+        .where(OCRResult.page_id == page_id)
+        .order_by(OCRResult.created_at.desc())
+    )
+    ocr_data = ocr_res.scalars().first()
     
     if not ocr_data:
         ocr_data = OCRResult(page_id=page_id, extracted_text=extracted_text)
