@@ -5,6 +5,7 @@ import traceback
 import aiofiles
 import datetime
 import re
+import numpy as np
 from dotenv import load_dotenv
 from pdf2image import convert_from_path
 import google.generativeai as genai
@@ -41,10 +42,78 @@ except Exception as e:
     logger.critical(f"Failed to initialize AI Adapter: {e}")
     ai_adapter = None
 
+DEFAULT_PROMPT = (
+    "استخرج النص العربي من هذه الصورة بدقة تامة وحوله إلى تنسيق HTML نظيف ومبسط. "
+    "استخدم وسوم HTML مثل <h1> للعناوين الكبيرة، <h2> للعناوين الفرعية، <p> للفقرات، <b> للكلمات المهمة، "
+    "و <ul><li> للقوائم إن وجدت. "
+    "حافظ على هيكلية النص الأساسية كما هي في الصورة. "
+    "الرجاء إرجاع كود HTML الخاص بالمحتوى فقط، بدون وسوم <html> أو <body> أو ```html."
+)
+
+async def _process_single_page_internal(db: AsyncSession, page: Page, ai_adapter, prompt: str):
+    """
+    Internal unit for processing a single page OCR.
+    Handles extraction, embedding generation, and database updates.
+    """
+    img_path = str(page.image_path)
+    if not os.path.exists(img_path):
+        raise FileNotFoundError(f"Image not found at {img_path}")
+
+    logger.info(f"Ocr processing internal for page ID: {page.id}, path: {img_path}")
+    img = Image.open(img_path)
+
+    # Use the adapter to process the image
+    extracted_text = await ai_adapter.process_image(img, prompt)
+    
+    # Clean up any markdown formatting the model may return
+    if extracted_text:
+        extracted_text = re.sub(r'^```(?:html|markdown|text|arabic)?\s*', '', extracted_text.strip(), flags=re.IGNORECASE | re.MULTILINE)
+        extracted_text = re.sub(r'\s*```\s*$', '', extracted_text, flags=re.MULTILINE)
+        extracted_text = re.sub(r'^#{1,6}\s+', '', extracted_text, flags=re.MULTILINE)
+        extracted_text = re.sub(r'^---+\s*$', '', extracted_text, flags=re.MULTILINE)
+        extracted_text = extracted_text.strip()
+    
+    confidence = 1.0 if extracted_text else 0.0
+    
+    # Generate embedding for semantic search
+    embedding_vector = []
+    if extracted_text:
+        try:
+            embedding_vector = await ai_adapter.get_embedding(extracted_text)
+        except Exception as ee:
+            logger.error(f"Embedding generation failed for page {page.id}: {ee}")
+    
+    embedding_binary = np.array(embedding_vector, dtype='float32').tobytes() if embedding_vector else None
+
+    # Upsert OCR result
+    res = await db.execute(
+        select(OCRResult)
+        .where(OCRResult.page_id == page.id)
+        .order_by(OCRResult.created_at.desc())
+    )
+    ocr_record = res.scalars().first()
+    
+    if ocr_record:
+        ocr_record.extracted_text = extracted_text
+        ocr_record.confidence_score = confidence
+        ocr_record.embedding = embedding_binary
+        ocr_record.created_at = datetime.datetime.utcnow()
+    else:
+        ocr_record = OCRResult(
+            page_id=page.id,
+            extracted_text=extracted_text,
+            confidence_score=confidence,
+            embedding=embedding_binary
+        )
+        db.add(ocr_record)
+
+    page.status = "Completed"
+    await db.commit()
+    return ocr_record
 
 async def process_document_task(book_id: str):
     """
-    Background task to process all pages of a book using the configured AI provider.
+    Background task to process all pages of a book.
     """
     if not ai_adapter:
         logger.error("AI Adapter not initialized. Cannot process task.")
@@ -56,7 +125,7 @@ async def process_document_task(book_id: str):
         async with AsyncSessionLocal() as db:
             book = await db.get(Book, book_id)
             if not book:
-                logger.error(f"Book {book_id} not found in database.")
+                logger.error(f"Book {book_id} not found.")
                 return
             
             book.status = "Processing"
@@ -67,79 +136,15 @@ async def process_document_task(book_id: str):
             )
             pages = result.scalars().all()
 
-            prompt = (
-                "استخرج النص العربي من هذه الصورة بدقة تامة وحوله إلى تنسيق HTML نظيف ومبسط. "
-                "استخدم وسوم HTML مثل <h1> للعناوين الكبيرة، <h2> للعناوين الفرعية، <p> للفقرات، <b> للكلمات المهمة، "
-                "و <ul><li> للقوائم إن وجدت. "
-                "حافظ على هيكلية النص الأساسية كما هي في الصورة. "
-                "الرجاء إرجاع كود HTML الخاص بالمحتوى فقط، بدون وسوم <html> أو <body> أو ```html."
-            )
-
             for page in pages:
                 try:
                     page.status = "Processing"
                     await db.commit()
-
-                    img_path = str(page.image_path)
-                    if not os.path.exists(img_path):
-                        raise FileNotFoundError(f"Image not found at {img_path}")
-
-                    logger.info(f"Processing page {page.page_number}/{len(pages)}: {img_path}")
-
-                    img = Image.open(img_path)
-
-                    # Use the adapter to process the image
-                    extracted_text = await ai_adapter.process_image(img, prompt)
                     
-                    # Clean up any markdown formatting the model may return
-                    if extracted_text:
-                        extracted_text = re.sub(r'^```(?:html|markdown|text|arabic)?\s*', '', extracted_text.strip(), flags=re.IGNORECASE | re.MULTILINE)
-                        extracted_text = re.sub(r'\s*```\s*$', '', extracted_text, flags=re.MULTILINE)
-                        extracted_text = re.sub(r'^#{1,6}\s+', '', extracted_text, flags=re.MULTILINE)  # Remove ### headings
-                        extracted_text = re.sub(r'^---+\s*$', '', extracted_text, flags=re.MULTILINE)   # Remove --- separators
-                        extracted_text = extracted_text.strip()
+                    await _process_single_page_internal(db, page, ai_adapter, DEFAULT_PROMPT)
                     
-                    confidence = 1.0 if extracted_text else 0.0
-                    
-                    # Generate embedding for semantic search
-                    embedding_vector = []
-                    if extracted_text:
-                        try:
-                            embedding_vector = await ai_adapter.get_embedding(extracted_text)
-                        except Exception as ee:
-                            logger.error(f"Embedding generation failed: {ee}")
-                    
-                    import numpy as np
-                    embedding_binary = np.array(embedding_vector, dtype='float32').tobytes() if embedding_vector else None
-
-                    # Check for existing OCR result and update it if it exists (upsert)
-                    res = await db.execute(
-                        select(OCRResult)
-                        .where(OCRResult.page_id == page.id)
-                        .order_by(OCRResult.created_at.desc())
-                    )
-                    ocr_record = res.scalars().first()
-                    
-                    if ocr_record:
-                        ocr_record.extracted_text = extracted_text
-                        ocr_record.confidence_score = confidence
-                        ocr_record.embedding = embedding_binary
-                        ocr_record.created_at = datetime.datetime.utcnow()
-                    else:
-                        ocr_record = OCRResult(
-                            page_id=page.id,
-                            extracted_text=extracted_text,
-                            confidence_score=confidence,
-                            embedding=embedding_binary
-                        )
-                        db.add(ocr_record)
-
-                    page.status = "Completed"
-                    await db.commit()
-
-                    # Rate limiting delay - increased for stability
+                    # Rate limiting delay
                     await asyncio.sleep(5) 
-
                 except Exception as pe:
                     logger.error(f"Error processing page {page.page_number}: {pe}")
                     page.status = "Failed"
@@ -151,17 +156,43 @@ async def process_document_task(book_id: str):
             logger.info(f"Completed OCR task for book: {book_id}")
 
     except Exception as e:
-        error_msg = traceback.format_exc()
-        logger.error(f"Critical error processing book {book_id}: {e}\n{error_msg}")
-        
-        try:
-            async with AsyncSessionLocal() as fail_db:
-                book = await fail_db.get(Book, book_id)
-                if book:
-                    book.status = "Failed"
-                    await fail_db.commit()
-        except Exception as fe:
-            logger.error(f"Failed to update book status to Failed: {fe}")
+        logger.error(f"Critical error processing book {book_id}: {e}\n{traceback.format_exc()}")
+        async with AsyncSessionLocal() as fail_db:
+            book = await fail_db.get(Book, book_id)
+            if book:
+                book.status = "Failed"
+                await fail_db.commit()
+
+async def process_single_page_task(page_id: str):
+    """
+    Background task to re-process a single page.
+    """
+    if not ai_adapter:
+        logger.error("AI Adapter not initialized.")
+        return
+
+    logger.info(f"Starting single-page OCR task for ID: {page_id}")
+    
+    try:
+        async with AsyncSessionLocal() as db:
+            page = await db.get(Page, page_id)
+            if not page:
+                logger.error(f"Page {page_id} not found.")
+                return
+            
+            page.status = "Processing"
+            await db.commit()
+            
+            await _process_single_page_internal(db, page, ai_adapter, DEFAULT_PROMPT)
+            logger.info(f"Successfully re-processed page: {page_id}")
+            
+    except Exception as e:
+        logger.error(f"Error re-processing page {page_id}: {e}")
+        async with AsyncSessionLocal() as fail_db:
+            p = await fail_db.get(Page, page_id)
+            if p:
+                p.status = "Failed"
+                await fail_db.commit()
 
 async def handle_pdf_upload(file_path: str, upload_dir: str):
     """
@@ -174,14 +205,8 @@ async def handle_pdf_upload(file_path: str, upload_dir: str):
         kwargs = {"poppler_path": POPPLER_PATH} if POPPLER_PATH else {}
         return convert_from_path(file_path, **kwargs)
     
-    try:
-        images = await loop.run_in_executor(None, _convert)
-    except Exception as e:
-        logger.error(f"PDF conversion failed: {e}")
-        raise
-
+    images = await loop.run_in_executor(None, _convert)
     saved_paths = []
-    base_name = os.path.basename(file_path).split('.')[0]
     book_folder = os.path.dirname(file_path)
     
     for i, image in enumerate(images):
@@ -189,5 +214,4 @@ async def handle_pdf_upload(file_path: str, upload_dir: str):
         image.save(page_path, "PNG")
         saved_paths.append(page_path)
         
-    logger.info(f"Successfully converted PDF into {len(saved_paths)} images.")
     return saved_paths

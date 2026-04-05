@@ -154,6 +154,22 @@ export function BookDetailsPage() {
     }
   }
 
+  const handleRegeneratePage = async (pageId: string) => {
+    try {
+      setSavingPages(prev => ({ ...prev, [pageId]: true }))
+      await axios.post(`${API_URL}/pages/${pageId}/process`)
+      
+      // Refresh results and book status to show "Processing"
+      fetchResults()
+      const statusRes = await axios.get(`${API_URL}/books/${id}/status`)
+      setBookStatus(statusRes.data)
+    } catch (error) {
+      console.error("Failed to regenerate page:", error)
+    } finally {
+      setSavingPages(prev => ({ ...prev, [pageId]: false }))
+    }
+  }
+
   const handleTextChange = (pageId: string, text: string) => {
     setEditingTexts(prev => ({ ...prev, [pageId]: text }))
   }
@@ -309,6 +325,15 @@ export function BookDetailsPage() {
                       </Badge>
                     </div>
                     <div className="flex items-center gap-2">
+                       <Button 
+                         size="sm" 
+                         variant="ghost" 
+                         onClick={() => handleRegeneratePage(page.id)}
+                         disabled={isProcessing || savingPages[page.id]}
+                         title="إعادة توليد النص"
+                       >
+                         <RefreshCw className={`h-4 w-4 ${savingPages[page.id] ? "animate-spin" : ""}`} />
+                       </Button>
                        {isPublished && (
                          <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => handlePublishPage(page.id, "Completed")}>
                            إعادة للمراجعة

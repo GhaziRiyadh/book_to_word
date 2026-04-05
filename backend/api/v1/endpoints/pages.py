@@ -45,3 +45,19 @@ async def update_page_ocr(
             await db.commit()
 
     return {"message": "OCR updated successfully", "status": page.status}
+
+@router.post("/{page_id}/process")
+async def reprocess_page(
+    page_id: str,
+    db: AsyncSession = Depends(get_async_db)
+):
+    from services import process_single_page_task
+    page = await db.get(Page, page_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Page not found")
+    
+    # Process in background
+    import asyncio
+    asyncio.create_task(process_single_page_task(page_id))
+    
+    return {"message": "Page reprocessing started in background", "status": "Processing"}
