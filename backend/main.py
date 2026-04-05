@@ -134,8 +134,12 @@ async def get_book_results(book_id: str, db: AsyncSession = Depends(get_async_db
     
     results = []
     for page in pages:
-        ocr_res = await db.execute(select(OCRResult).where(OCRResult.page_id == page.id))
-        ocr_data = ocr_res.scalar_one_or_none()
+        ocr_res = await db.execute(
+            select(OCRResult)
+            .where(OCRResult.page_id == page.id)
+            .order_by(OCRResult.created_at.desc())
+        )
+        ocr_data = ocr_res.scalars().first()
         text = ocr_data.extracted_text if ocr_data else ""
         confidence = ocr_data.confidence_score if ocr_data else 0.0
         

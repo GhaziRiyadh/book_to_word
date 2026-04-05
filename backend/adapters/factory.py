@@ -2,6 +2,7 @@ import os
 from .gemini_adapter import GeminiAdapter
 from .openai_adapter import OpenAIAdapter
 from .deepseek_adapter import DeepSeekAdapter
+from .ollama_adapter import OllamaAdapter
 from .base import AIAdapter
 
 class AdapterFactory:
@@ -30,5 +31,10 @@ class AdapterFactory:
                 raise ValueError("DEEPSEEK_API_KEY is not set")
             return DeepSeekAdapter(api_key, model_name)
         
+        elif provider == "ollama":
+            base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            model_name = os.getenv("OLLAMA_MODEL", "llama3.2-vision")
+            return OllamaAdapter(base_url, model_name)
+            
         else:
             raise ValueError(f"Unknown AI provider: {provider}")

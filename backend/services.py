@@ -3,6 +3,8 @@ import logging
 import asyncio
 import traceback
 import aiofiles
+import datetime
+import re
 from dotenv import load_dotenv
 from pdf2image import convert_from_path
 import google.generativeai as genai
@@ -89,14 +91,35 @@ async def process_document_task(book_id: str):
                     # Use the adapter to process the image
                     extracted_text = await ai_adapter.process_image(img, prompt)
                     
+                    # Clean up any markdown formatting the model may return
+                    if extracted_text:
+                        extracted_text = re.sub(r'^```(?:html|markdown|text|arabic)?\s*', '', extracted_text.strip(), flags=re.IGNORECASE | re.MULTILINE)
+                        extracted_text = re.sub(r'\s*```\s*$', '', extracted_text, flags=re.MULTILINE)
+                        extracted_text = re.sub(r'^#{1,6}\s+', '', extracted_text, flags=re.MULTILINE)  # Remove ### headings
+                        extracted_text = re.sub(r'^---+\s*$', '', extracted_text, flags=re.MULTILINE)   # Remove --- separators
+                        extracted_text = extracted_text.strip()
+                    
                     confidence = 1.0 if extracted_text else 0.0
 
-                    ocr_record = OCRResult(
-                        page_id=page.id,
-                        extracted_text=extracted_text,
-                        confidence_score=confidence
+                    # Check for existing OCR result and update it if it exists (upsert)
+                    res = await db.execute(
+                        select(OCRResult)
+                        .where(OCRResult.page_id == page.id)
+                        .order_by(OCRResult.created_at.desc())
                     )
-                    db.add(ocr_record)
+                    ocr_record = res.scalars().first()
+                    
+                    if ocr_record:
+                        ocr_record.extracted_text = extracted_text
+                        ocr_record.confidence_score = confidence
+                        ocr_record.created_at = datetime.datetime.utcnow()
+                    else:
+                        ocr_record = OCRResult(
+                            page_id=page.id,
+                            extracted_text=extracted_text,
+                            confidence_score=confidence
+                        )
+                        db.add(ocr_record)
 
                     page.status = "Completed"
                     await db.commit()
