@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     
     # Storage
     UPLOAD_DIR: str = "uploads"
+    OCR_PROMPT_MODE: str = os.getenv("OCR_PROMPT_MODE", "formatted").lower().strip()
     
     # AI Providers
     AI_PROVIDER: str = os.getenv("AI_PROVIDER", "gemini").lower()

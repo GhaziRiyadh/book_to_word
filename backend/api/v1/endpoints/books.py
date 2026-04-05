@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
 import os
+import re
+from html import unescape
 import aiofiles
 import numpy as np
+from docx import Document
 
 from database import get_async_db
 from models import Book, Page, OCRResult
@@ -14,6 +18,17 @@ from utils.math import cosine_similarity
 from core.config import settings
 
 router = APIRouter()
+
+
+def _to_plain_text(raw_text: str) -> str:
+    # Handle both plain text and simple HTML OCR output.
+    text = raw_text or ""
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(p|div|h1|h2|h3|h4|h5|h6|li)>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = unescape(text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 @router.get("/")
 async def get_all_books(db: AsyncSession = Depends(get_async_db)):
@@ -70,14 +85,15 @@ async def upload_book(
 @router.post("/{book_id}/process")
 async def process_book(
     book_id: str,
+    prompt_mode: str | None = Query(None, description="OCR prompt mode override: normal or formatted"),
     db: AsyncSession = Depends(get_async_db),
 ):
     book = await db.get(Book, book_id)
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
 
-    await process_document_task(book_id)
-    return {"message": "Processing completed", "book_id": book_id}
+    await process_document_task(book_id, prompt_mode=prompt_mode)
+    return {"message": "Processing completed", "book_id": book_id, "prompt_mode": prompt_mode or settings.OCR_PROMPT_MODE}
 
 @router.get("/{book_id}/status")
 async def get_book_status(book_id: str, db: AsyncSession = Depends(get_async_db)):
@@ -177,18 +193,35 @@ async def search_book(book_id: str, query: str, db: AsyncSession = Depends(get_a
 async def export_book_results(book_id: str, db: AsyncSession = Depends(get_async_db)):
     result = await db.execute(select(Page).where(Page.book_id == book_id).order_by(Page.page_number))
     pages = result.scalars().all()
-    
-    full_text = ""
+
+    book = await db.get(Book, book_id)
+    book_title = book.title if book and book.title else f"book_{book_id}"
+
+    document = Document()
+    document.add_heading(book_title, level=1)
+
     for page in pages:
         ocr_res = await db.execute(select(OCRResult).where(OCRResult.page_id == page.id))
         ocr_data = ocr_res.scalar_one_or_none()
         if ocr_data and ocr_data.extracted_text:
-            full_text += f"\n--- صفحة {page.page_number} ---\n"
-            full_text += ocr_data.extracted_text + "\n"
-            
-    export_path = os.path.join(settings.UPLOAD_DIR, f"{book_id}_export.txt")
-    with open(export_path, "w", encoding="utf-8") as f:
-        f.write(full_text)
-        
-    from fastapi.responses import FileResponse
-    return FileResponse(export_path, filename=f"exported_book_{book_id}.txt")
+            document.add_heading(f"صفحة {page.page_number}", level=2)
+            plain_text = _to_plain_text(ocr_data.extracted_text)
+            if plain_text:
+                for paragraph in plain_text.split("\n"):
+                    cleaned = paragraph.strip()
+                    if cleaned:
+                        document.add_paragraph(cleaned)
+            else:
+                document.add_paragraph("")
+
+            document.add_page_break()
+
+    export_path = os.path.join(settings.UPLOAD_DIR, f"{book_id}_export.docx")
+    document.save(export_path)
+
+    safe_name = re.sub(r"[^\w\u0600-\u06FF\s-]", "", book_title).strip() or f"exported_book_{book_id}"
+    return FileResponse(
+        export_path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"{safe_name}.docx",
+    )

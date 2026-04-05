@@ -34,6 +34,7 @@ export function BookDetailsPage() {
   const [bookStatus, setBookStatus] = useState<BookStatus | null>(null)
   const [results, setResults] = useState<PageResult[]>([])
   const [isReprocessing, setIsReprocessing] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   const [resumeAttempted, setResumeAttempted] = useState(false)
   const [expandedPageId, setExpandedPageId] = useState<string | null>(null)
   const [editingTexts, setEditingTexts] = useState<Record<string, string>>({})
@@ -133,8 +134,19 @@ export function BookDetailsPage() {
     return () => clearInterval(interval)
   }, [id])
 
-  const handleExport = () => {
-    window.open(`${API_URL}/books/${id}/export`, "_blank")
+  const handleExport = async () => {
+    if (!id) {
+      return
+    }
+
+    try {
+      setIsExporting(true)
+      window.open(`${API_URL}/books/${id}/export`, "_blank")
+    } catch (error) {
+      console.error("DOCX export failed:", error)
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const handlePrint = () => {
@@ -318,9 +330,9 @@ export function BookDetailsPage() {
               <Printer className="h-4 w-4 ml-2" />
               طباعة
             </Button>
-            <Button onClick={handleExport}>
+            <Button onClick={handleExport} disabled={isExporting}>
               <Download className="h-4 w-4 ml-2" />
-              تصدير
+              {isExporting ? "جاري التصدير..." : "تصدير Word"}
             </Button>
           </div>
         </div>

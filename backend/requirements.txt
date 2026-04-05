@@ -33,3 +33,4 @@ requests
 tqdm
 numpy
 pandas
+python-docx==1.2.0

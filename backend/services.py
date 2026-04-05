@@ -45,6 +45,9 @@ _adapter_init_lock = asyncio.Lock()
 _adapter_init_sync_lock = threading.Lock()
 _hf_prefetch_attempted = False
 
+OCR_PROMPT_MODE_NORMAL = "normal"
+OCR_PROMPT_MODE_FORMATTED = "formatted"
+
 
 def _initialize_ai_adapter():
     global ai_adapter, _adapter_error
@@ -106,13 +109,42 @@ def get_adapter_health() -> dict:
 # Initialize once on import; tasks can still retry if startup initialization fails.
 _initialize_ai_adapter()
 
-DEFAULT_PROMPT = (
+NORMAL_EXTRACT_PROMPT = (
+    "استخرج النص العربي من هذه الصورة كما هو فقط. "
+    "لا تقم بإعادة الصياغة أو التلخيص أو الشرح. "
+    "حافظ على ترتيب الأسطر والفقرات قدر الإمكان. "
+    "أخرج النص كنص عادي فقط بدون أي وسوم HTML أو Markdown أو كتل كود."
+)
+
+FORMATTED_HTML_PROMPT = (
     "استخرج النص العربي من هذه الصورة بدقة تامة وحوله إلى تنسيق HTML نظيف ومبسط. "
     "استخدم وسوم HTML مثل <h1> للعناوين الكبيرة، <h2> للعناوين الفرعية، <p> للفقرات، <b> للكلمات المهمة، "
     "و <ul><li> للقوائم إن وجدت. "
     "حافظ على هيكلية النص الأساسية كما هي في الصورة. "
     "الرجاء إرجاع كود HTML الخاص بالمحتوى فقط، بدون وسوم <html> أو <body> أو ```html."
 )
+
+
+def resolve_prompt_mode(prompt_mode: str | None) -> str:
+    mode = (prompt_mode or settings.OCR_PROMPT_MODE or OCR_PROMPT_MODE_FORMATTED).lower().strip()
+    if mode in {OCR_PROMPT_MODE_NORMAL, OCR_PROMPT_MODE_FORMATTED}:
+        return mode
+
+    logger.warning(
+        "Unknown OCR prompt mode '%s' (requested/default). Falling back to '%s'.",
+        mode,
+        OCR_PROMPT_MODE_FORMATTED,
+    )
+    return OCR_PROMPT_MODE_FORMATTED
+
+
+def get_ocr_prompt(prompt_mode: str | None) -> str:
+    mode = resolve_prompt_mode(prompt_mode)
+    if mode == OCR_PROMPT_MODE_NORMAL:
+        return NORMAL_EXTRACT_PROMPT
+    if mode == OCR_PROMPT_MODE_FORMATTED:
+        return FORMATTED_HTML_PROMPT
+    return FORMATTED_HTML_PROMPT
 
 async def _process_single_page_internal(db: AsyncSession, page: Page, ai_adapter, prompt: str):
     """
@@ -175,7 +207,7 @@ async def _process_single_page_internal(db: AsyncSession, page: Page, ai_adapter
     await db.commit()
     return ocr_record
 
-async def process_document_task(book_id: str):
+async def process_document_task(book_id: str, prompt_mode: str | None = None):
     """
     Background task to process all pages of a book.
     """
@@ -190,7 +222,8 @@ async def process_document_task(book_id: str):
                 await fail_db.commit()
         return
 
-    logger.info(f"Starting OCR task for book ID: {book_id}")
+    effective_prompt_mode = resolve_prompt_mode(prompt_mode)
+    logger.info("Starting OCR task for book ID: %s with prompt_mode=%s", book_id, effective_prompt_mode)
     
     try:
         async with AsyncSessionLocal() as db:
@@ -207,6 +240,7 @@ async def process_document_task(book_id: str):
             )
             pages = result.scalars().all()
             pages_to_process = [p for p in pages if p.status != "Published"]
+            selected_prompt = get_ocr_prompt(effective_prompt_mode)
 
             if not pages_to_process:
                 logger.info("No OCR work required for book %s: all pages are already Published.", book_id)
@@ -219,7 +253,7 @@ async def process_document_task(book_id: str):
                     page.status = "Processing"
                     await db.commit()
                     
-                    await _process_single_page_internal(db, page, ai_adapter, DEFAULT_PROMPT)
+                    await _process_single_page_internal(db, page, ai_adapter, selected_prompt)
                     
                     # Rate limiting delay
                     await asyncio.sleep(5) 
@@ -241,7 +275,7 @@ async def process_document_task(book_id: str):
                 book.status = "Failed"
                 await fail_db.commit()
 
-async def process_single_page_task(page_id: str):
+async def process_single_page_task(page_id: str, prompt_mode: str | None = None):
     """
     Background task to re-process a single page.
     """
@@ -256,7 +290,8 @@ async def process_single_page_task(page_id: str):
                 await fail_db.commit()
         return
 
-    logger.info(f"Starting single-page OCR task for ID: {page_id}")
+    effective_prompt_mode = resolve_prompt_mode(prompt_mode)
+    logger.info("Starting single-page OCR task for ID: %s with prompt_mode=%s", page_id, effective_prompt_mode)
     
     try:
         async with AsyncSessionLocal() as db:
@@ -271,8 +306,9 @@ async def process_single_page_task(page_id: str):
             
             page.status = "Processing"
             await db.commit()
-            
-            await _process_single_page_internal(db, page, ai_adapter, DEFAULT_PROMPT)
+
+            selected_prompt = get_ocr_prompt(effective_prompt_mode)
+            await _process_single_page_internal(db, page, ai_adapter, selected_prompt)
             logger.info(f"Successfully re-processed page: {page_id}")
             
     except Exception as e:

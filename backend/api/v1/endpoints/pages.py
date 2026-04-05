@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from database import get_async_db
 from models import Book, Page, OCRResult
+from core.config import settings
 
 router = APIRouter()
 
@@ -49,6 +50,7 @@ async def update_page_ocr(
 @router.post("/{page_id}/process")
 async def reprocess_page(
     page_id: str,
+    prompt_mode: str | None = Query(None, description="OCR prompt mode override: normal or formatted"),
     db: AsyncSession = Depends(get_async_db)
 ):
     from services import process_single_page_task
@@ -68,7 +70,7 @@ async def reprocess_page(
         book.status = "Processing"
         await db.commit()
 
-    await process_single_page_task(page_id)
+    await process_single_page_task(page_id, prompt_mode=prompt_mode)
 
     result = await db.execute(select(Page).where(Page.book_id == page.book_id))
     all_pages = result.scalars().all()
@@ -79,5 +81,6 @@ async def reprocess_page(
     refreshed_page = await db.get(Page, page_id)
     return {
         "message": "Page reprocessing completed",
+        "prompt_mode": prompt_mode or settings.OCR_PROMPT_MODE,
         "status": refreshed_page.status if refreshed_page else "Completed",
     }
