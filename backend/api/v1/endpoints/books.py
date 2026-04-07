@@ -17,6 +17,8 @@ from services import handle_pdf_upload, process_document_task
 from adapters.factory import AdapterFactory
 from utils.math import cosine_similarity
 from core.config import settings
+from utils.embeddings import get_local_embedding
+import asyncio
 
 router = APIRouter()
 
@@ -33,9 +35,41 @@ def _to_plain_text(raw_text: str) -> str:
 
 @router.get("/")
 async def get_all_books(db: AsyncSession = Depends(get_async_db)):
-    result = await db.execute(select(Book).order_by(Book.created_at.desc()))
+    result = await db.execute(
+        select(Book)
+        .options(selectinload(Book.pages))
+        .order_by(Book.created_at.desc())
+    )
     books = result.scalars().all()
-    return {"books": [{"id": b.id, "title": b.title, "status": b.status, "created_at": b.created_at} for b in books]}
+    
+    response_books = []
+    for b in books:
+        # Get thumbnail from first page
+        thumbnail = None
+        if b.pages:
+            # Sort pages to ensure we get page 1
+            sorted_pages = sorted(b.pages, key=lambda p: p.page_number)
+            first_page = sorted_pages[0]
+            if first_page.image_path:
+                # Convert path to a URL relative to /uploads
+                # Assuming image_path stores something like 'uploads/book_id/file.png'
+                # or an absolute path. We want the part after 'uploads/'
+                path_parts = first_page.image_path.replace("\\", "/").split("/uploads/")
+                if len(path_parts) > 1:
+                    thumbnail = f"/uploads/{path_parts[1]}"
+                else:
+                    # Fallback if uploads isn't in the path string (might be a relative path from the start)
+                    thumbnail = f"/{first_page.image_path.replace('\\', '/')}"
+        
+        response_books.append({
+            "id": b.id,
+            "title": b.title,
+            "status": b.status,
+            "created_at": b.created_at,
+            "thumbnail": thumbnail
+        })
+        
+    return {"books": response_books}
 
 @router.post("/upload")
 async def upload_book(
@@ -177,8 +211,9 @@ async def search_book(
         results = []
         for page, ocr in rows:
             # Basic snippet generation
-            text = ocr.extracted_text or ""
+            text = _to_plain_text(ocr.extracted_text or "")
             idx = text.lower().find(query.lower())
+            # Find a good window around the match
             start = max(0, idx - 100)
             end = min(len(text), idx + 200)
             snippet = ("..." if start > 0 else "") + text[start:end] + ("..." if end < len(text) else "")
@@ -194,10 +229,15 @@ async def search_book(
 
     # Semantic Search Mode (Vector Similarity)
     try:
-        ai_adapter = AdapterFactory.get_adapter()
-        query_embedding = await ai_adapter.get_embedding(query)
+        # Use local embedding for the query (same as used for indexing)
+        query_embedding = await asyncio.to_thread(get_local_embedding, query)
         if not query_embedding:
-            return {"results": [], "error": "Could not generate query embedding"}
+            # Fallback (optional)
+            ai_adapter = AdapterFactory.get_adapter()
+            query_embedding = await ai_adapter.get_embedding(query)
+            
+        if not query_embedding:
+            return {"results": [], "error": "Could not generate query embedding (local or remote)"}
         query_vec = np.array(query_embedding, dtype='float32')
     except Exception as e:
         return {"results": [], "error": str(e)}
@@ -218,8 +258,8 @@ async def search_book(
             # Use a slightly lower threshold for semantic discovery
             if score > 0.35:
                 if page.id not in scored_map or score > scored_map[page.id]["score"]:
-                    # Basic snippet for semantic - just start of text
-                    text = ocr.extracted_text or ""
+                    # Basic snippet for semantic - just start of plain text
+                    text = _to_plain_text(ocr.extracted_text or "")
                     snippet = (text[:300] + "...") if len(text) > 300 else text
                     
                     scored_map[page.id] = {

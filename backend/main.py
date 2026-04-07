@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from api.v1.api import api_router
 from core.config import settings
-from services import get_adapter_health
+from services import get_adapter_health, check_semantic_readiness
 
 logger = logging.getLogger("ocr_service")
 
@@ -19,6 +19,9 @@ async def lifespan(app: FastAPI):
             health["provider"],
             health["last_error"],
         )
+    
+    # Check semantic indices completeness
+    await check_semantic_readiness()
     yield
 
 app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)

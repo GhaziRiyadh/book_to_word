@@ -5,6 +5,10 @@ from sqlalchemy import select
 from database import get_async_db
 from models import Book, Page, OCRResult
 from core.config import settings
+from utils.embeddings import get_local_embedding
+import asyncio
+import numpy as np
+import datetime
 
 router = APIRouter()
 
@@ -31,6 +35,15 @@ async def update_page_ocr(
         db.add(ocr_data)
     else:
         ocr_data.extracted_text = extracted_text
+        ocr_data.created_at = datetime.datetime.utcnow()
+
+    # Continuous Indexing: Update embedding for the new text
+    try:
+        embedding_vector = await asyncio.to_thread(get_local_embedding, extracted_text)
+        if embedding_vector:
+            ocr_data.embedding = np.array(embedding_vector, dtype='float32').tobytes()
+    except Exception as e:
+        print(f"Error updating embedding in manual edit: {e}")
     
     page.status = status
     await db.commit()

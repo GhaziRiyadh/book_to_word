@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from pdf2image import convert_from_path
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from models import Book, Page, OCRResult
 from database import AsyncSessionLocal
 from core.config import settings
@@ -19,6 +19,7 @@ load_dotenv()
 
 from adapters.factory import AdapterFactory
 from adapters.hf_adapter import prefetch_huggingface_model
+from utils.embeddings import get_local_embedding
 
 load_dotenv()
 
@@ -106,6 +107,64 @@ def get_adapter_health() -> dict:
     }
 
 
+async def check_semantic_readiness():
+    """
+    Scans the database at startup to report on and repair semantic search completeness.
+    """
+    logger.info("Starting Semantic Readiness Check...")
+    try:
+        async with AsyncSessionLocal() as db:
+            # Count total pages that have OCR results
+            total_res = await db.execute(select(func.count(OCRResult.id)))
+            total_count = total_res.scalar() or 0
+
+            # Find pages that have OCR text but NO embedding vector
+            missing_query = await db.execute(
+                select(OCRResult)
+                .where(OCRResult.extracted_text != None)
+                .where(OCRResult.embedding == None)
+            )
+            missing_records = missing_query.scalars().all()
+            missing_count = len(missing_records)
+
+            ready_count = total_count - missing_count
+            
+            if total_count == 0:
+                logger.info("Semantic Check: No book data found yet.")
+                return
+
+            if missing_count > 0:
+                logger.warning(
+                    "Semantic Check: %d/%d pages ready for search. %d pages are missing embeddings. Starting repair...",
+                    ready_count, total_count, missing_count
+                )
+                
+                # Automatically generate missing embeddings
+                repaired = 0
+                for ocr in missing_records:
+                    if ocr.extracted_text:
+                        try:
+                            # Use local embedding logic to minimize external API calls/latency
+                            embedding_vector = await asyncio.to_thread(get_local_embedding, ocr.extracted_text)
+                            if embedding_vector:
+                                ocr.embedding = np.array(embedding_vector, dtype='float32').tobytes()
+                                repaired += 1
+                                # Log progress periodically for large repairs
+                                if repaired % 10 == 0 or repaired == missing_count:
+                                    logger.info("Repair Progress: %d/%d embeddings generated...", repaired, missing_count)
+                        except Exception as repair_err:
+                            logger.error("Failed to repair embedding for Result ID %s: %s", ocr.id, repair_err)
+                
+                if repaired > 0:
+                    await db.commit()
+                    logger.info("Semantic Repair Complete: %d embeddings generated and saved.", repaired)
+            else:
+                logger.info("Semantic Check: All %d pages are ready for search.", total_count)
+                
+    except Exception as e:
+        logger.error("Failed to perform semantic readiness check/repair: %s", e)
+
+
 # Initialize once on import; tasks can still retry if startup initialization fails.
 _initialize_ai_adapter()
 
@@ -171,11 +230,15 @@ async def _process_single_page_internal(db: AsyncSession, page: Page, ai_adapter
     
     confidence = 1.0 if extracted_text else 0.0
     
-    # Generate embedding for semantic search
+    # Generate embedding for semantic search using local model (priority)
     embedding_vector = []
     if extracted_text:
         try:
-            embedding_vector = await ai_adapter.get_embedding(extracted_text)
+            # Use local embedding instead of adapter's to ensure reliability
+            embedding_vector = await asyncio.to_thread(get_local_embedding, extracted_text)
+            if not embedding_vector:
+                # Fallback if local fails (optional)
+                embedding_vector = await ai_adapter.get_embedding(extracted_text)
         except Exception as ee:
             logger.error(f"Embedding generation failed for page {page.id}: {ee}")
     

@@ -46,6 +46,8 @@ export function BookDetailsPage() {
   const [isSearching, setIsSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [gotoPage, setGotoPage] = useState("")
+  const [recentSearches, setRecentSearches] = useState<string[]>([])
+  const [showRecent, setShowRecent] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string>("all")
   
   const isStatusPollingRef = useRef(false)
@@ -117,6 +119,16 @@ export function BookDetailsPage() {
   useEffect(() => {
     lastStatusKeyRef.current = ""
     currentBookStatusRef.current = ""
+
+    // Load recent searches from localStorage
+    const saved = localStorage.getItem(`recent_searches_${id}`)
+    if (saved) {
+      try {
+        setRecentSearches(JSON.parse(saved))
+      } catch (e) {
+        console.error("Failed to parse recent searches", e)
+      }
+    }
 
     const init = async () => {
       await fetchBookStatus(false)
@@ -211,6 +223,14 @@ export function BookDetailsPage() {
         params: { query: searchQuery, mode: searchMode }
       })
       setSearchResults(res.data.results)
+      
+      // Update recent searches
+      if (searchQuery.trim()) {
+        const updated = [searchQuery, ...recentSearches.filter(s => s !== searchQuery)].slice(0, 5)
+        setRecentSearches(updated)
+        localStorage.setItem(`recent_searches_${id}`, JSON.stringify(updated))
+      }
+      setShowRecent(false)
     } catch (error) {
       console.error("Search failed:", error)
     } finally {
@@ -225,15 +245,31 @@ export function BookDetailsPage() {
        const page = results.find(p => p.page_number === num)
        if (page) {
          setExpandedPageId(page.id)
-         setTimeout(() => scrollToPage(num), 100)
+         scrollToPage(num, page.status)
        }
     }
     setGotoPage("")
   }
 
-  const scrollToPage = (pageNumber: number) => {
-    const element = document.getElementById(`page-${pageNumber}`)
-    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const scrollToPage = (pageNumber: number, targetStatus?: string) => {
+    // If the page is filtered out, reset filter to 'all'
+    if (statusFilter !== "all" && targetStatus) {
+       const isNeedsReview = targetStatus === "Completed" && statusFilter === "needs_review"
+       const isPublished = targetStatus === "Published" && statusFilter === "published"
+       if (!isNeedsReview && !isPublished) {
+         setStatusFilter("all")
+       }
+    } else if (statusFilter !== "all") {
+       setStatusFilter("all")
+    }
+
+    // Wait for filter to apply and elements to render
+    setTimeout(() => {
+      const element = document.getElementById(`page-${pageNumber}`)
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "start" })
+      }
+    }, 100)
   }
 
   const handlePublishPage = async (pageId: string, status: string = "Published") => {
@@ -352,33 +388,95 @@ export function BookDetailsPage() {
             {/* Search Bar with Mode Toggle */}
             <div className="flex flex-col gap-2 flex-1 min-w-[350px]">
               <form onSubmit={handleSearch} className="relative flex items-center">
-                 <input 
-                   type="text" 
-                   placeholder={searchMode === "keyword" ? "بحث عن كلمات محددة..." : "بحث دلالي (بالمعنى)..."} 
-                   value={searchQuery}
-                   onChange={(e) => setSearchQuery(e.target.value)}
-                   className="w-full h-10 pr-10 pl-24 rounded-md border border-input bg-background/50 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                 />
-                 <Button 
-                   type="submit" 
-                   variant="ghost" 
-                   size="sm" 
-                   className="absolute right-0 top-0 h-10 px-3 hover:bg-transparent"
-                 >
-                   {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                 </Button>
-                 <div className="absolute left-2 top-1.5 flex bg-muted rounded p-0.5 border">
-                    <button 
-                      type="button"
-                      onClick={() => setSearchMode("keyword")}
-                      className={`text-[9px] px-2 py-1 rounded transition-colors ${searchMode === "keyword" ? "bg-background shadow-sm font-bold" : "text-muted-foreground"}`}
-                    >كلمات</button>
-                    <button 
-                      type="button"
-                      onClick={() => setSearchMode("semantic")}
-                      className={`text-[9px] px-2 py-1 rounded transition-colors ${searchMode === "semantic" ? "bg-background shadow-sm font-bold" : "text-muted-foreground"}`}
-                    >دلالي</button>
-                 </div>
+                <input 
+                  type="text" 
+                  placeholder={searchMode === "keyword" ? "بحث عن كلمات محددة..." : "بحث دلالي (بالمعنى)..."} 
+                  value={searchQuery}
+                  onFocus={() => setShowRecent(true)}
+                  onBlur={() => setTimeout(() => setShowRecent(false), 200)}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full h-10 pr-10 pl-24 rounded-md border border-input bg-background/50 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                
+                {/* Recent Searches Dropdown */}
+                {showRecent && recentSearches.length > 0 && !searchResults.length && (
+                  <div className="absolute top-11 left-0 right-0 z-[60] bg-background border rounded-lg shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
+                    <div className="p-2 border-b bg-muted/30">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-2">عمليات بحث أخيرة</p>
+                    </div>
+                    <div className="p-1">
+                      {recentSearches.map((s, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          className="w-full text-right px-3 py-2 text-xs hover:bg-primary/5 rounded-md flex items-center justify-between group transition-colors"
+                          onClick={() => { setSearchQuery(s); }}
+                        >
+                          <span>{s}</span>
+                          <Search className="h-3 w-3 text-muted-foreground opacity-30 group-hover:opacity-100" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <Button 
+                  type="submit" 
+                  variant="ghost" 
+                  size="sm" 
+                  className="absolute right-0 top-0 h-10 px-3 hover:bg-transparent"
+                >
+                  {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                </Button>
+                <div className="absolute left-2 top-1.5 flex bg-muted rounded p-0.5 border">
+                   <button 
+                     type="button"
+                     onClick={() => setSearchMode("keyword")}
+                     className={`text-[9px] px-2 py-1 rounded transition-colors ${searchMode === "keyword" ? "bg-background shadow-sm font-bold" : "text-muted-foreground"}`}
+                   >كلمات</button>
+                   <button 
+                     type="button"
+                     onClick={() => setSearchMode("semantic")}
+                     className={`text-[9px] px-2 py-1 rounded transition-colors ${searchMode === "semantic" ? "bg-background shadow-sm font-bold" : "text-muted-foreground"}`}
+                   >دلالي</button>
+                </div>
+
+                {/* Search Results Dropdown */}
+                {searchResults.length > 0 && (
+                  <Card className="absolute top-12 left-0 right-0 z-50 shadow-2xl border border-primary/20 bg-background/95 backdrop-blur-md overflow-hidden rounded-xl animate-in fade-in slide-in-from-top-2 duration-300">
+                    <CardHeader className="bg-muted/30 py-2.5 flex flex-row items-center justify-between border-b px-4 transition-all">
+                      <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">نتائج ({searchMode === "keyword" ? "كلمات" : "دلالي"}): {searchResults.length}</CardTitle>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0 rounded-full hover:bg-destructive/10 hover:text-destructive" onClick={() => setSearchResults([])}>×</Button>
+                    </CardHeader>
+                    <CardContent className="p-0 max-h-[400px] overflow-y-auto divide-y dark:divide-primary/10">
+                      {searchResults.map((r) => (
+                        <div 
+                          key={r.id} 
+                          className="group p-4 hover:bg-primary/5 cursor-pointer transition-all border-b last:border-b-0"
+                          onClick={() => { 
+                            setExpandedPageId(r.id); 
+                            scrollToPage(r.page_number, r.status); 
+                            setSearchResults([]); // Close dropdown on selection
+                          }}
+                        >
+                          <div className="flex justify-between items-center mb-1.5">
+                            <div className="flex items-center gap-2">
+                              <div className="bg-primary/10 p-1.5 rounded-lg text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-300">
+                                <FileCheck className="h-3.5 w-3.5" />
+                              </div>
+                              <span className="font-bold text-xs tracking-tight">صفحة {r.page_number}</span>
+                            </div>
+                            {searchMode === "semantic" && (
+                              <Badge variant="outline" className="text-[8px] font-bold border-primary/30 text-primary bg-primary/5 uppercase px-1.5 py-0">
+                                دقة: {Math.round(r.score * 100)}%
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2" dir="rtl">{r.extracted_text}</p>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
               </form>
             </div>
 
@@ -408,30 +506,6 @@ export function BookDetailsPage() {
            <Progress value={bookStatus?.progress_percent || 0} className="h-1.5" />
         </div>
 
-        {/* Search Results */}
-        {searchResults.length > 0 && (
-          <Card className="mb-6 border-blue-200 dark:border-blue-900 bg-blue-50/30 dark:bg-blue-900/10 print:hidden overflow-hidden">
-            <CardHeader className="bg-blue-100/50 dark:bg-blue-900/20 py-2 flex flex-row items-center justify-between">
-              <CardTitle className="text-xs">نتائج ({searchMode === "keyword" ? "كلمات" : "دلالي"}): {searchResults.length}</CardTitle>
-              <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setSearchResults([])}>إغلاق</Button>
-            </CardHeader>
-            <CardContent className="p-0 max-h-[300px] overflow-y-auto divide-y dark:divide-blue-900/50">
-              {searchResults.map((r) => (
-                <div 
-                  key={r.id} 
-                  className="p-3 hover:bg-blue-100/30 dark:hover:bg-blue-900/20 cursor-pointer transition-colors"
-                  onClick={() => { setExpandedPageId(r.id); scrollToPage(r.page_number); }}
-                >
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-bold text-xs">صفحة {r.page_number}</span>
-                    {searchMode === "semantic" && <Badge variant="secondary" className="text-[9px]">دقة: {Math.round(r.score * 100)}%</Badge>}
-                  </div>
-                  <p className="text-xs text-muted-foreground line-clamp-2" dir="rtl">{r.extracted_text}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )}
 
         {/* Page List Rendering */}
         <div className="space-y-8">
@@ -498,7 +572,7 @@ export function BookDetailsPage() {
                                 disabled={page.page_number <= 1}
                                 onClick={() => {
                                   const prev = results.find(p => p.page_number === page.page_number - 1)
-                                  if (prev) { setExpandedPageId(prev.id); setTimeout(() => scrollToPage(prev.page_number), 100); }
+                                  if (prev) { setExpandedPageId(prev.id); scrollToPage(prev.page_number, prev.status); }
                                 }}
                               >
                                 <ArrowRight className="h-4 w-4 ml-1" />
@@ -511,7 +585,7 @@ export function BookDetailsPage() {
                                 disabled={page.page_number >= results.length}
                                 onClick={() => {
                                   const next = results.find(p => p.page_number === page.page_number + 1)
-                                  if (next) { setExpandedPageId(next.id); setTimeout(() => scrollToPage(next.page_number), 100); }
+                                  if (next) { setExpandedPageId(next.id); scrollToPage(next.page_number, next.status); }
                                 }}
                               >
                                 التالي

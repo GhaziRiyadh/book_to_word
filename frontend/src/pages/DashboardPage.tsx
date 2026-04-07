@@ -14,6 +14,7 @@ type Book = {
   status: string
   created_at: string
   pages_count?: number
+  thumbnail?: string
 }
 
 export function DashboardPage() {
@@ -60,6 +61,16 @@ export function DashboardPage() {
     total: books.length,
     completed: books.filter(b => b.status === "Completed").length,
     processing: books.filter(b => b.status === "Processing").length,
+  }
+
+  // Helper to get image URL
+  const getImageUrl = (path?: string) => {
+    if (!path) return null
+    if (path.startsWith('http')) return path
+    // Remove the leading slash if it exists and we're appending to a base that has one, 
+    // or just ensure we don't have double slashes
+    const cleanPath = path.startsWith('/') ? path : `/${path}`
+    return `http://localhost:8000${cleanPath}`
   }
 
   return (
@@ -127,7 +138,7 @@ export function DashboardPage() {
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
              {[1,2,3].map(i => (
-               <Card key={i} className="h-48 animate-pulse bg-muted/50 border-none" />
+               <Card key={i} className="h-64 animate-pulse bg-muted/50 border-none" />
              ))}
           </div>
         ) : books.length === 0 ? (
@@ -144,33 +155,53 @@ export function DashboardPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {books.map((book) => (
-              <Card key={book.id} className="group overflow-hidden premium-shadow border-none hover:-translate-y-1 transition-all duration-300">
-                <CardHeader className="pb-4">
-                  <div className="flex justify-between items-start mb-2">
-                     <Badge variant={
-                       book.status === 'Completed' ? 'default' :
-                       book.status === 'Processing' ? 'secondary' :
-                       book.status === 'Failed' ? 'destructive' : 'outline'
-                     } className="rounded-md">
-                       {book.status === 'Completed' ? 'مكتمل' :
-                        book.status === 'Processing' ? 'جاري المعالجة' :
-                        book.status === 'Failed' ? 'فشل' : 'في الانتظار'}
-                     </Badge>
-                     <span className="text-[10px] font-medium text-muted-foreground">{new Date(book.created_at).toLocaleDateString('ar-SA')}</span>
+              <Card key={book.id} className="group overflow-hidden premium-shadow border-none hover:-translate-y-2 transition-all duration-300 bg-card/40 backdrop-blur-sm">
+                <div className="relative aspect-[4/3] overflow-hidden bg-muted">
+                  {book.thumbnail ? (
+                    <img 
+                      src={getImageUrl(book.thumbnail)!} 
+                      alt={book.title}
+                      className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted/30">
+                      <BookOpen className="h-12 w-12 text-muted-foreground/20" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                    <span className="text-white text-xs font-medium">عرض المزيد</span>
                   </div>
-                  <CardTitle className="text-xl line-clamp-1 group-hover:text-primary transition-colors">{book.title}</CardTitle>
+                  <Badge className="absolute top-3 left-3 shadow-lg" variant={
+                    book.status === 'Completed' ? 'default' :
+                    book.status === 'Processing' ? 'secondary' :
+                    book.status === 'Failed' ? 'destructive' : 'outline'
+                  }>
+                    {book.status === 'Completed' ? 'مكتمل' :
+                     book.status === 'Processing' ? 'جاري المعالجة' :
+                     book.status === 'Failed' ? 'فشل' : 'في الانتظار'}
+                  </Badge>
+                </div>
+                
+                <CardHeader className="p-4">
+                  <div className="flex justify-between items-center mb-1">
+                     <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                       {new Date(book.created_at).toLocaleDateString('ar-SA')}
+                     </span>
+                  </div>
+                  <CardTitle className="text-lg line-clamp-1 group-hover:text-primary transition-colors">{book.title}</CardTitle>
                 </CardHeader>
-                <CardFooter className="pt-0 flex gap-2">
+                
+                <CardFooter className="px-4 pb-4 pt-0 flex gap-2">
                    <Link to={`/books/${book.id}`} className="flex-1">
-                      <Button className="w-full rounded-xl group" variant="secondary">
-                        {book.status === 'Completed' ? 'عرض النتائج' : 'التفاصيل'}
-                        <ArrowRight className="mr-2 h-4 w-4 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                      <Button className="w-full rounded-lg font-bold" variant="secondary">
+                        نتائج OCR
+                        <ArrowRight className="mr-2 h-4 w-4" />
                       </Button>
                    </Link>
                    <Button 
                      size="icon" 
                      variant="ghost" 
-                     className="rounded-xl hover:bg-primary/10 hover:text-primary"
+                     className="rounded-lg hover:bg-primary/10"
                      onClick={() => handleReprocess(book.id)}
                      disabled={book.status === 'Processing' || processingBookId === book.id}
                    >
