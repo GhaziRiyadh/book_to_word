@@ -152,10 +152,47 @@ async def get_book_results(book_id: str, db: AsyncSession = Depends(get_async_db
     }
 
 @router.get("/{book_id}/search")
-async def search_book(book_id: str, query: str, db: AsyncSession = Depends(get_async_db)):
+async def search_book(
+    book_id: str, 
+    query: str, 
+    mode: str = Query("semantic", description="Search mode: semantic or keyword"),
+    db: AsyncSession = Depends(get_async_db)
+):
     if not query:
         return {"results": []}
 
+    # Keyword Search Mode (Exact/Partial phrase matching)
+    if mode == "keyword":
+        # Search using SQL LIKE for simple keyword matching
+        query_pattern = f"%{query}%"
+        result = await db.execute(
+            select(Page, OCRResult)
+            .join(OCRResult, Page.id == OCRResult.page_id)
+            .where(Page.book_id == book_id)
+            .where(OCRResult.extracted_text.like(query_pattern))
+            .order_by(Page.page_number)
+        )
+        rows = result.all()
+        
+        results = []
+        for page, ocr in rows:
+            # Basic snippet generation
+            text = ocr.extracted_text or ""
+            idx = text.lower().find(query.lower())
+            start = max(0, idx - 100)
+            end = min(len(text), idx + 200)
+            snippet = ("..." if start > 0 else "") + text[start:end] + ("..." if end < len(text) else "")
+            
+            results.append({
+                "id": page.id,
+                "page_number": page.page_number,
+                "extracted_text": snippet,
+                "score": 1.0, # Exact/Keyword matches get a flat score
+                "status": page.status
+            })
+        return {"results": results[:20]}
+
+    # Semantic Search Mode (Vector Similarity)
     try:
         ai_adapter = AdapterFactory.get_adapter()
         query_embedding = await ai_adapter.get_embedding(query)
@@ -178,20 +215,24 @@ async def search_book(book_id: str, query: str, db: AsyncSession = Depends(get_a
             page_vec = np.frombuffer(ocr.embedding, dtype='float32')
             score = float(cosine_similarity(query_vec, page_vec))
             
-            if score > 0.4:
-                # If multiple OCR results exist, keep the one with higher similarity
+            # Use a slightly lower threshold for semantic discovery
+            if score > 0.35:
                 if page.id not in scored_map or score > scored_map[page.id]["score"]:
+                    # Basic snippet for semantic - just start of text
+                    text = ocr.extracted_text or ""
+                    snippet = (text[:300] + "...") if len(text) > 300 else text
+                    
                     scored_map[page.id] = {
                         "id": page.id,
                         "page_number": page.page_number,
-                        "extracted_text": (ocr.extracted_text[:300] + "...") if ocr.extracted_text else "",
+                        "extracted_text": snippet,
                         "score": score,
                         "status": page.status
                     }
     
     scored_results = list(scored_map.values())
     scored_results.sort(key=lambda x: x["score"], reverse=True)
-    return {"results": scored_results[:10]}
+    return {"results": scored_results[:15]}
 
 @router.get("/{book_id}/export")
 async def export_book_results(book_id: str, db: AsyncSession = Depends(get_async_db)):
