@@ -3,7 +3,7 @@ import { UploadPage } from "./pages/UploadPage"
 import { DashboardPage } from "./pages/DashboardPage"
 import { BookDetailsPage } from "./pages/BookDetailsPage"
 import { SettingsPage } from "./pages/SettingsPage"
-import { BookOpen, UploadCloud, LayoutDashboard, SlidersHorizontal } from "lucide-react"
+import { BookOpen, PlusCircle, LayoutDashboard, SlidersHorizontal } from "lucide-react"
 import { Toaster } from "@/components/ui/toaster"
 import { ThemeProvider } from "./components/theme-provider"
 import { ModeToggle } from "./components/mode-toggle"
@@ -13,44 +13,46 @@ function App() {
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
       <Router>
         <div className="min-h-screen bg-background font-sans text-foreground">
-          <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <div className="container flex h-16 items-center space-x-4 sm:justify-between sm:space-x-0">
-              <div className="flex gap-6 md:gap-10">
-                <Link to="/" className="flex items-center space-x-2">
-                  <BookOpen className="h-6 w-6" />
-                  <span className="inline-block font-bold">Arabic OCR</span>
+        <header className="sticky top-0 z-50 w-full glass-morphism">
+          <div className="container mx-auto flex h-16 items-center px-4 md:px-8">
+            <div className="flex gap-8 items-center">
+              <Link to="/" className="flex items-center space-x-2 space-x-reverse group">
+                 <div className="bg-primary p-1.5 rounded-lg group-hover:scale-110 transition-transform">
+                   <BookOpen className="h-6 w-6 text-primary-foreground" />
+                 </div>
+                 <span className="text-xl font-bold tracking-tight text-gradient">قارئ الكتب الذكي</span>
+              </Link>
+              
+              <nav className="hidden md:flex items-center gap-6">
+                <Link 
+                  to="/" 
+                  className="flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+                >
+                  <LayoutDashboard className="h-4 w-4 ml-2" />
+                  اللوحة الرئيسية
                 </Link>
-                <nav className="flex gap-6">
-                  <Link
-                    to="/"
-                    className="flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <LayoutDashboard className="h-4 w-4 mr-2" />
-                    اللوحة الرئيسية
-                  </Link>
-                  <Link
-                    to="/upload"
-                    className="flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <UploadCloud className="h-4 w-4 mr-2" />
-                    رفع ملف جديد
-                  </Link>
-                  <Link
-                    to="/settings"
-                    className="flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <SlidersHorizontal className="h-4 w-4 mr-2" />
-                    الإعدادات
-                  </Link>
-                </nav>
-              </div>
-              <div className="flex flex-1 items-center justify-end">
-                <nav className="flex items-center space-x-1">
-                  <ModeToggle />
-                </nav>
-              </div>
+                <Link 
+                  to="/upload" 
+                  className="flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+                >
+                  <PlusCircle className="h-4 w-4 ml-2" />
+                  رفع كتاب
+                </Link>
+                <Link 
+                  to="/settings" 
+                  className="flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+                >
+                  <SlidersHorizontal className="h-4 w-4 ml-2" />
+                  الإعدادات
+                </Link>
+              </nav>
             </div>
-          </header>
+            
+            <div className="flex flex-1 items-center justify-end gap-4">
+              <ModeToggle />
+            </div>
+          </div>
+        </header>
 
           <main className="container mx-auto py-6" dir="rtl">
             <Routes>

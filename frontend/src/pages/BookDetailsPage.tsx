@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useParams } from "react-router-dom"
+import { Link, useParams } from "react-router-dom"
 import axios from "axios"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress"
 // import { ScrollArea } from "@/components/ui/scroll-area" // Unused after refactor to scientific layout
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, CheckCircle2, Printer, Download, RefreshCw, ChevronDown } from "lucide-react"
+import { Loader2, CheckCircle2, Printer, Download, RefreshCw, ChevronDown, Layers, Search, FileCheck, ArrowRight, ArrowLeft } from "lucide-react"
 
 const API_URL = "http://localhost:8000/api/v1"
 const BACKEND_URL = "http://localhost:8000"
@@ -288,25 +288,33 @@ export function BookDetailsPage() {
       {/* Side Navigation Sidebar */}
       <aside className="w-64 flex-shrink-0 border-l bg-muted/10 rounded-lg flex flex-col print:hidden">
         <div className="p-4 border-b">
-           <h2 className="font-bold text-lg mb-4">فهرس الصفحات</h2>
+           <div className="flex items-center gap-2 mb-4">
+             <div className="bg-primary/10 p-1.5 rounded-lg">
+               <Layers className="h-4 w-4 text-primary" />
+             </div>
+             <h2 className="font-bold text-base">فهرس الصفحات</h2>
+           </div>
            <form onSubmit={handleGotoPage} className="flex gap-2">
-              <input 
-                type="number" 
-                placeholder="رقم..."
-                className="flex-1 h-9 rounded-md border bg-background px-3 text-sm"
-                value={gotoPage}
-                onChange={(e) => setGotoPage(e.target.value)}
-              />
-              <Button type="submit" size="sm" variant="secondary">انتقل</Button>
+              <div className="relative flex-1">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <input 
+                  type="number" 
+                  placeholder="رقم..."
+                  className="w-full h-9 rounded-md border bg-background pl-8 pr-3 text-sm focus-visible:ring-1 focus-visible:ring-primary outline-none transition-all"
+                  value={gotoPage}
+                  onChange={(e) => setGotoPage(e.target.value)}
+                />
+              </div>
+              <Button type="submit" size="sm" variant="secondary" className="h-9">انتقل</Button>
            </form>
         </div>
         
-        <div className="p-4 border-b space-y-2">
-           <p className="text-xs font-semibold uppercase text-muted-foreground">تصفية حسب الحالة</p>
-           <div className="flex flex-wrap gap-1">
-              <Button size="sm" variant={statusFilter === "all" ? "default" : "outline"} className="text-[9px] h-6 px-2" onClick={() => setStatusFilter("all")}>الكل</Button>
-              <Button size="sm" variant={statusFilter === "needs_review" ? "default" : "outline"} className="text-[9px] h-6 px-2" onClick={() => setStatusFilter("needs_review")}>مراجعة</Button>
-              <Button size="sm" variant={statusFilter === "published" ? "default" : "outline"} className="text-[9px] h-6 px-2" onClick={() => setStatusFilter("published")}>منشور</Button>
+        <div className="p-4 border-b space-y-3">
+           <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">تصفية حسب الحالة</p>
+           <div className="flex flex-wrap gap-1.5">
+              <Button size="sm" variant={statusFilter === "all" ? "default" : "outline"} className="text-[10px] h-7 px-3 rounded-full" onClick={() => setStatusFilter("all")}>الكل</Button>
+              <Button size="sm" variant={statusFilter === "needs_review" ? "default" : "outline"} className="text-[10px] h-7 px-3 rounded-full" onClick={() => setStatusFilter("needs_review")}>مراجعة</Button>
+              <Button size="sm" variant={statusFilter === "published" ? "default" : "outline"} className="text-[10px] h-7 px-3 rounded-full" onClick={() => setStatusFilter("published")}>منشور</Button>
            </div>
         </div>
 
@@ -325,13 +333,18 @@ export function BookDetailsPage() {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 pb-20 overflow-y-auto scrollbar-hide">
+      <div className="flex-1 flex flex-col min-w-0 pb-20 overflow-y-auto scrollbar-hide px-2">
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 sticky top-0 bg-background/80 backdrop-blur pb-4 z-10 print:hidden">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">{bookStatus?.title || "جاري التحميل..."}</h1>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+               <Link to="/" className="hover:text-primary transition-colors">الرئيسية</Link>
+               <span>/</span>
+               <span className="text-foreground font-medium truncate max-w-[200px]">{bookStatus?.title || "..."}</span>
+            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-gradient">{bookStatus?.title || "جاري التحميل..."}</h1>
             <div className="flex items-center gap-2 mt-1">
-              <Badge variant="outline">{bookStatus?.progress} صفحة معالجة</Badge>
-              <Badge variant={bookStatus?.status === "Processing" ? "secondary" : "default"}>{bookStatus?.status}</Badge>
+              <Badge variant="outline" className="bg-primary/5 border-primary/20 text-primary uppercase text-[10px] font-bold tracking-wider">{bookStatus?.progress} صفحات</Badge>
+              <Badge variant={bookStatus?.status === "Processing" ? "secondary" : "default"} className="uppercase text-[10px] font-bold tracking-wider">{bookStatus?.status}</Badge>
             </div>
           </div>
           
@@ -436,12 +449,15 @@ export function BookDetailsPage() {
                 id={`page-${page.page_number}`}
                 className={`overflow-hidden transition-all duration-300 ${expandedPageId === page.id ? "ring-2 ring-primary shadow-lg" : "opacity-80 hover:opacity-100"} print:shadow-none print:border-none print:mb-0 print:break-after-page`}
               >
-                <CardHeader className="bg-muted/30 px-6 py-3 print:hidden border-b cursor-pointer" onClick={() => setExpandedPageId(prev => prev === page.id ? null : page.id)}>
+                <CardHeader className="bg-muted/30 px-6 py-3 print:hidden border-b cursor-pointer group hover:bg-muted/50 transition-colors" onClick={() => setExpandedPageId(prev => prev === page.id ? null : page.id)}>
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-3">
-                      <span className="font-bold">صفحة {page.page_number}</span>
-                      <Badge variant={isPublished ? "default" : page.status === "Completed" ? "secondary" : "outline"}>
-                        {isPublished ? "منشور" : page.status === "Completed" ? "بانتظار المراجعة" : "معالجة..."}
+                      <div className="bg-background p-1.5 rounded-md border shadow-sm group-hover:scale-110 transition-transform">
+                        <FileCheck className={`h-4 w-4 ${isPublished ? "text-green-500" : "text-muted-foreground opacity-20"}`} />
+                      </div>
+                      <span className="font-bold text-lg">صفحة {page.page_number}</span>
+                      <Badge variant={isPublished ? "default" : page.status === "Completed" ? "secondary" : "outline"} className="rounded-full px-3 text-[10px]">
+                        {isPublished ? "تم النشر" : page.status === "Completed" ? "بانتظار المراجعة" : "معالجة..."}
                       </Badge>
                     </div>
                     <div className="flex items-center gap-2">
@@ -473,15 +489,48 @@ export function BookDetailsPage() {
 
                       {/* Content / Editor */}
                       <div className="p-6 flex flex-col bg-background print:p-0 print:bg-white border-r">
+                        <div className="flex items-center justify-between mb-4 print:hidden">
+                           <div className="flex gap-2">
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="h-8 rounded-full"
+                                disabled={page.page_number <= 1}
+                                onClick={() => {
+                                  const prev = results.find(p => p.page_number === page.page_number - 1)
+                                  if (prev) { setExpandedPageId(prev.id); setTimeout(() => scrollToPage(prev.page_number), 100); }
+                                }}
+                              >
+                                <ArrowRight className="h-4 w-4 ml-1" />
+                                السابق
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="h-8 rounded-full"
+                                disabled={page.page_number >= results.length}
+                                onClick={() => {
+                                  const next = results.find(p => p.page_number === page.page_number + 1)
+                                  if (next) { setExpandedPageId(next.id); setTimeout(() => scrollToPage(next.page_number), 100); }
+                                }}
+                              >
+                                التالي
+                                <ArrowLeft className="h-4 w-4 mr-1" />
+                              </Button>
+                           </div>
+                           <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">تحرير المحتوى</span>
+                        </div>
                         {isPublished ? (
-                          <div className="scientific-page-container w-full bg-white dark:bg-card border dark:border-border shadow-sm print:border-none print:shadow-none p-8 lg:p-12 print:p-[20mm]">
-                             <div className="flex justify-between items-baseline mb-12 border-b-2 border-black dark:border-foreground pb-2 px-2 font-serif text-xl font-bold">
-                               <span className="flex-1 text-right">{bookStatus?.title}</span>
-                               <span>{page.page_number}</span>
+                          <div className="scientific-page-container w-full bg-white dark:bg-[#ffffff] border dark:border-white/10 shadow-2xl print:border-none print:shadow-none p-8 lg:p-16 print:p-[20mm] rounded-sm self-center max-w-[850px] transition-all hover:shadow-primary/5 select-text" style={{ minHeight: '1100px' }}>
+                             {/* Decorative header lines */}
+                             <div className="flex justify-between items-baseline mb-16 border-b-2 border-black/80 pb-4 px-4 font-serif text-xl font-extrabold tracking-widest text-black/90">
+                                <span className="uppercase text-sm tracking-[0.2em]">{bookStatus?.title || "DOC-ID"}</span>
+                                <span className="italic text-base">-{page.page_number}-</span>
                              </div>
                              <div 
-                               className="scientific-page-content px-4 min-h-[600px] print:text-justify text-xs htm-content"
-                               dangerouslySetInnerHTML={{ __html: editingTexts[page.id] }}
+                               className="scientific-page-content px-4 min-h-[800px] print:text-justify text-xl leading-[2.2] font-serif text-black text-right"
+                               dir="rtl"
+                               dangerouslySetInnerHTML={{ __html: (editingTexts[page.id] || "").replace(/\n/g, '<br/>') }}
                              />
                           </div>
                         ) : (
