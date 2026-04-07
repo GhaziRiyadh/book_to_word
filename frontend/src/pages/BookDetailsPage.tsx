@@ -305,7 +305,7 @@ export function BookDetailsPage() {
                placeholder="بحث دلالي في محتوى الكتاب..." 
                value={searchQuery}
                onChange={(e) => setSearchQuery(e.target.value)}
-               className="w-full h-10 pr-10 pl-4 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+               className="w-full h-10 pr-10 pl-4 rounded-md border border-input bg-background/50 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
              />
              <Button 
                type="submit" 
@@ -354,8 +354,8 @@ export function BookDetailsPage() {
 
       {/* Search Results Section */}
       {searchResults.length > 0 && (
-        <Card className="border-blue-200 bg-blue-50/30 print:hidden overflow-hidden">
-          <CardHeader className="bg-blue-100/50 py-3 flex flex-row items-center justify-between">
+        <Card className="border-blue-200 dark:border-blue-900 bg-blue-50/30 dark:bg-blue-900/10 print:hidden overflow-hidden">
+          <CardHeader className="bg-blue-100/50 dark:bg-blue-900/20 py-3 flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-sm">نتائج البحث الدلالي</CardTitle>
               <CardDescription className="text-xs">تم العثور على {searchResults.length} صفحات ذات صلة</CardDescription>
@@ -470,17 +470,17 @@ export function BookDetailsPage() {
                     /* Published View - Side by side with original image for reference in UI */
                     <div className="grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-x-reverse print:block">
                       {/* Original Image Column (Hidden in print) */}
-                      <div className="p-4 bg-muted/10 flex items-start justify-center min-h-[400px] border-l print:hidden">
-                        <div className="relative group ring-1 ring-black/5 rounded-lg overflow-hidden bg-white shadow-sm">
+                      <div className="p-4 bg-muted/10 flex items-start justify-center min-h-[400px] border-l dark:border-border print:hidden">
+                        <div className="relative group ring-1 ring-black/5 dark:ring-white/5 rounded-lg overflow-hidden bg-white dark:bg-muted shadow-sm">
                           <img src={imageUrl} alt={`Page ${page.page_number}`} className="max-w-full max-h-[700px] object-contain" />
                         </div>
                       </div>
 
                       {/* Professional Book Style Column */}
                       <div className="p-6 lg:p-10 flex flex-col bg-muted/5 print:p-0 print:bg-white">
-                        <div className="scientific-page-container w-full bg-white border shadow-sm print:border-none print:shadow-none p-8 lg:p-12 print:p-[20mm]">
+                        <div className="scientific-page-container w-full bg-white dark:bg-card border dark:border-border shadow-sm print:border-none print:shadow-none p-8 lg:p-12 print:p-[20mm]">
                           {/* Book Header for Scientific Layout */}
-                          <div className="flex justify-between items-baseline mb-12 border-b-2 border-black pb-2 px-2 font-serif text-xl font-bold">
+                          <div className="flex justify-between items-baseline mb-12 border-b-2 border-black dark:border-foreground pb-2 px-2 font-serif text-xl font-bold">
                              <span className="flex-1 text-right">{bookStatus?.title || "المقدمة"}</span>
                              <span className="">{page.page_number}</span>
                              {/* <span className="flex-1 text-left">{page.page_number % 2 === 0 ? "الفقه الإسلامي" : "أصول الفقه"}</span> */}
@@ -497,8 +497,8 @@ export function BookDetailsPage() {
                     /* Review/Editor View */
                     <div className="grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-x-reverse print:hidden">
                       {/* Image Column */}
-                      <div className={`p-4 bg-muted/10 flex items-start justify-center min-h-[400px] border-l ${isProcessing ? "opacity-50" : ""}`}>
-                        <div className="relative group ring-1 ring-black/5 rounded-lg overflow-hidden bg-white shadow-sm">
+                      <div className={`p-4 bg-muted/10 flex items-start justify-center min-h-[400px] border-l dark:border-border ${isProcessing ? "opacity-50" : ""}`}>
+                        <div className="relative group ring-1 ring-black/5 dark:ring-white/5 rounded-lg overflow-hidden bg-white dark:bg-muted shadow-sm">
                           <img src={imageUrl} alt={`Page ${page.page_number}`} className="max-w-full max-h-[700px] object-contain" />
                           {isProcessing && (
                             <div className="absolute inset-0 bg-white/40 backdrop-blur-[1px] flex items-center justify-center">
@@ -537,13 +537,13 @@ export function BookDetailsPage() {
                                 </Button>
                               </div>
                               
-                              <Textarea
-                                dir="rtl"
-                                value={editingTexts[page.id] || ""}
-                                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleTextChange(page.id, e.target.value)}
-                                className="min-h-[500px] text-lg leading-relaxed font-serif resize-none border-none focus-visible:ring-1 focus-visible:ring-ring bg-white p-4"
-                                placeholder="اكتب أو عدل النص هنا..."
-                              />
+                                <Textarea
+                                  dir="rtl"
+                                  value={editingTexts[page.id] || ""}
+                                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleTextChange(page.id, e.target.value)}
+                                  className="min-h-[500px] text-lg leading-relaxed font-serif resize-none border-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent p-4"
+                                  placeholder="اكتب أو عدل النص هنا..."
+                                />
                             </div>
                           </>
                         )}

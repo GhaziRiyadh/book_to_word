@@ -112,7 +112,7 @@
     line-height: 1.8;
     text-align: justify;
     direction: rtl;
-    color: black;
+    color: inherit;
   }
 
   .scientific-page-content h1 {
