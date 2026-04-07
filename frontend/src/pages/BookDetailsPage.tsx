@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useParams, useLocation } from "react-router-dom"
 import axios from "axios"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -31,10 +31,12 @@ type BookStatus = {
 
 export function BookDetailsPage() {
   const { id } = useParams<{ id: string }>()
+  const location = useLocation()
   const [bookStatus, setBookStatus] = useState<BookStatus | null>(null)
   const [results, setResults] = useState<PageResult[]>([])
   const [isReprocessing, setIsReprocessing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [isPublishingAll, setIsPublishingAll] = useState(false)
   const [resumeAttempted, setResumeAttempted] = useState(false)
   const [expandedPageId, setExpandedPageId] = useState<string | null>(null)
   const [editingTexts, setEditingTexts] = useState<Record<string, string>>({})
@@ -84,6 +86,7 @@ export function BookDetailsPage() {
       console.error(error)
     }
   }, [id])
+
 
   const fetchBookStatus = useCallback(async (refreshResultsIfChanged: boolean = true) => {
     if (!id || isStatusPollingRef.current) {
@@ -154,26 +157,16 @@ export function BookDetailsPage() {
   const handleReprocess = async () => {
     try {
       setIsReprocessing(true)
-
-      const statusRes = await axios.get(`${API_URL}/books/${id}/status`)
-      setBookStatus(statusRes.data)
-      currentBookStatusRef.current = "Processing"
-      const pages = (statusRes.data.pages || [])
-        .slice()
-        .sort((a: { page_number: number }, b: { page_number: number }) => a.page_number - b.page_number)
-
-      for (const page of pages) {
-        if (page.status === "Published" || page.status === "Completed") {
-          continue
-        }
-        await axios.post(`${API_URL}/pages/${page.id}/process`)
-        setExpandedPageId(page.id)
-        setTimeout(() => scrollToPage(page.page_number), 100)
-        await fetchResults()
-      }
-
+      
+      // Optistically set to Processing to jumpstart the UI and polling
       setBookStatus(prev => prev ? { ...prev, status: "Processing" } : null)
+      currentBookStatusRef.current = "Processing"
+
+      // Hit the book-level endpoint which will intelligently process remaining pages sequentially
+      await axios.post(`${API_URL}/books/${id}/process`)
+
       await fetchBookStatus(true)
+      await fetchResults()
     } catch (error) {
       console.error("Failed to reprocess:", error)
     } finally {
@@ -210,6 +203,22 @@ export function BookDetailsPage() {
 
     resumeAfterRefresh()
   }, [id, resumeAttempted, isReprocessing])
+
+  // Handle auto-scroll for global search links
+  useEffect(() => {
+    if (results.length > 0) {
+      const searchParams = new URLSearchParams(location.search)
+      const targetPageStr = searchParams.get("page")
+      if (targetPageStr) {
+        const targetPageNum = parseInt(targetPageStr, 10)
+        const targetPage = results.find((p) => p.page_number === targetPageNum)
+        if (targetPage) {
+          setExpandedPageId(targetPage.id)
+          setTimeout(() => scrollToPage(targetPageNum, targetPage.status), 500)
+        }
+      }
+    }
+  }, [results, location.search])
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -270,6 +279,27 @@ export function BookDetailsPage() {
         element.scrollIntoView({ behavior: "smooth", block: "start" })
       }
     }, 100)
+  }
+
+  const handlePublishAll = async () => {
+    try {
+      setIsPublishingAll(true)
+      const payload = {
+         pages: results.map(p => ({
+             page_id: p.id,
+             extracted_text: editingTexts[p.id] || ""
+         }))
+      }
+      await axios.post(`${API_URL}/books/${id}/publish_all`, payload)
+      
+      // Refresh results to show new statuses
+      await fetchResults()
+      await fetchBookStatus(true)
+    } catch (error) {
+      console.error("Failed to publish all:", error)
+    } finally {
+      setIsPublishingAll(false)
+    }
   }
 
   const handlePublishPage = async (pageId: string, status: string = "Published") => {
@@ -481,6 +511,10 @@ export function BookDetailsPage() {
             </div>
 
             <div className="flex gap-2">
+              <Button size="sm" variant="default" onClick={handlePublishAll} disabled={isPublishingAll || results.length === 0} className="bg-green-600 hover:bg-green-700 text-white">
+                {isPublishingAll ? <Loader2 className="h-4 w-4 ml-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 ml-2" />}
+                نشر الكل
+              </Button>
               <Button variant="outline" size="sm" onClick={() => window.print()}>
                 <Printer className="h-4 w-4 ml-2" />
                 طباعة
@@ -591,9 +625,23 @@ export function BookDetailsPage() {
                                 التالي
                                 <ArrowLeft className="h-4 w-4 mr-1" />
                               </Button>
-                           </div>
-                           <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">تحرير المحتوى</span>
-                        </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">تحرير المحتوى</span>
+                              {isPublished && (
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-6 text-[10px] rounded-full hover:bg-primary/10 hover:text-primary transition-all px-2"
+                                  onClick={() => handlePublishPage(page.id, "Completed")}
+                                  disabled={savingPages[page.id]}
+                                >
+                                  <RefreshCw className={`h-3 w-3 ml-1 ${savingPages[page.id] ? "animate-spin" : ""}`} />
+                                  تعديل مجدداً
+                                </Button>
+                              )}
+                            </div>
+                         </div>
                         {isPublished ? (
                           <div className="scientific-page-container w-full bg-white dark:bg-[#ffffff] border dark:border-white/10 shadow-2xl print:border-none print:shadow-none p-8 lg:p-16 print:p-[20mm] rounded-sm self-center max-w-[850px] transition-all hover:shadow-primary/5 select-text" style={{ minHeight: '1100px' }}>
                              {/* Decorative header lines */}

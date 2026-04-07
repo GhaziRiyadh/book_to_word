@@ -4,7 +4,8 @@ import axios from "axios"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { BookOpen, Clock, CheckCircle2, Plus, ArrowRight, RefreshCw, Loader2 } from "lucide-react"
+import { BookOpen, Clock, CheckCircle2, Plus, ArrowRight, RefreshCw, Loader2, Search, FileCheck } from "lucide-react"
+
 
 const API_URL = "http://localhost:8000/api/v1"
 
@@ -22,6 +23,11 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [processingBookId, setProcessingBookId] = useState<string | null>(null)
 
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("")
+  const [globalSearchMode, setGlobalSearchMode] = useState<"semantic" | "keyword">("keyword")
+  const [isSearchingGlobal, setIsSearchingGlobal] = useState(false)
+  const [globalSearchResults, setGlobalSearchResults] = useState<any[]>([])
+
   useEffect(() => {
     fetchBooks()
   }, [])
@@ -37,18 +43,27 @@ export function DashboardPage() {
     }
   }
 
+  // Polling for updates when books are being processed
+  useEffect(() => {
+    const hasProcessingBooks = books.some(b => b.status === "Processing" || b.status === "Pending")
+    let interval: ReturnType<typeof setInterval>
+    
+    if (hasProcessingBooks) {
+       interval = setInterval(() => {
+           fetchBooks()
+       }, 3000)
+    }
+    
+    return () => {
+       if (interval) clearInterval(interval)
+    }
+  }, [books])
+
   const handleReprocess = async (bookId: string) => {
     try {
       setProcessingBookId(bookId)
-      const statusRes = await axios.get(`${API_URL}/books/${bookId}/status`)
-      const pages = (statusRes.data.pages || [])
-        .slice()
-        .sort((a: { page_number: number }, b: { page_number: number }) => a.page_number - b.page_number)
-
-      for (const page of pages) {
-        if (page.status === "Published") continue
-        await axios.post(`${API_URL}/pages/${page.id}/process`)
-      }
+      // Call the book-level process endpoint which handles things in the background
+      await axios.post(`${API_URL}/books/${bookId}/process`)
       await fetchBooks()
     } catch (error) {
       console.error("Failed to reprocess book", error)
@@ -57,10 +72,30 @@ export function DashboardPage() {
     }
   }
 
+  const handleGlobalSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!globalSearchQuery.trim()) {
+      setGlobalSearchResults([])
+      return
+    }
+    try {
+      setIsSearchingGlobal(true)
+      const res = await axios.get(`${API_URL}/books/global/search`, {
+        params: { query: globalSearchQuery, mode: globalSearchMode }
+      })
+      setGlobalSearchResults(res.data.results)
+    } catch (error) {
+      console.error("Search failed:", error)
+    } finally {
+      setIsSearchingGlobal(false)
+    }
+  }
+
   const stats = {
+
     total: books.length,
     completed: books.filter(b => b.status === "Completed").length,
-    processing: books.filter(b => b.status === "Processing").length,
+    processing: books.filter(b => b.status === "Processing" || b.status === "Pending").length,
   }
 
   // Helper to get image URL
@@ -128,14 +163,97 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      {/* Grid List */}
-      <div>
-        <div className="flex items-center justify-between mb-6">
-           <h2 className="text-2xl font-bold">المستندات الأخيرة</h2>
-           <div className="h-px flex-1 bg-muted mx-4 hidden md:block" />
-        </div>
+      {/* Global Search Bar */}
+      <div className="mb-10 max-w-3xl mx-auto">
+         <form onSubmit={handleGlobalSearch} className="relative flex items-center shadow-2xl rounded-xl group focus-within:ring-2 focus-within:ring-primary/50 transition-all">
+           <input 
+             type="text" 
+             placeholder={globalSearchMode === "keyword" ? "ابحث في جميع مكتباتك عن كلمات..." : "بحث دلالي (بالمعنى) عبر كل الكتب..."} 
+             value={globalSearchQuery}
+             onChange={(e) => {
+               setGlobalSearchQuery(e.target.value)
+               if (!e.target.value) setGlobalSearchResults([])
+             }}
+             className="w-full h-14 pr-12 pl-28 rounded-xl border border-primary/20 bg-background/80 backdrop-blur-sm text-base focus-visible:outline-none placeholder:text-muted-foreground/50 transition-all shadow-inner"
+           />
+           <Button 
+             type="submit" 
+             variant="ghost" 
+             className="absolute right-2 top-2 bottom-2 h-10 w-10 p-0 rounded-lg hover:bg-primary/10 text-primary"
+           >
+             {isSearchingGlobal ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
+           </Button>
+           
+           <div className="absolute left-2 top-2.5 flex bg-muted/50 rounded-lg p-1 border border-border/50">
+              <button 
+                type="button"
+                onClick={() => setGlobalSearchMode("keyword")}
+                className={`text-xs px-3 py-1.5 rounded-md transition-all duration-300 ${globalSearchMode === "keyword" ? "bg-background shadow-md font-bold text-primary" : "text-muted-foreground hover:text-foreground"}`}
+              >كلمات</button>
+              <button 
+                type="button"
+                onClick={() => setGlobalSearchMode("semantic")}
+                className={`text-xs px-3 py-1.5 rounded-md transition-all duration-300 ${globalSearchMode === "semantic" ? "bg-background shadow-md font-bold text-primary" : "text-muted-foreground hover:text-foreground"}`}
+              >دلالي</button>
+           </div>
+         </form>
+      </div>
 
-        {loading ? (
+      {/* Global Search Results or Grid List */}
+      <div>
+        {globalSearchResults.length > 0 ? (
+           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                   <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-l from-primary to-primary/60">نتائج البحث عبر المكتبة</h2>
+                   <Badge variant="outline" className="text-primary border-primary/20 bg-primary/5">{globalSearchResults.length} نتيجة</Badge>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => { setGlobalSearchResults([]); setGlobalSearchQuery(""); }}>
+                  عودة للمكتبة
+                </Button>
+             </div>
+             
+             <div className="flex flex-col gap-4">
+                {globalSearchResults.map((r, idx) => (
+                  <Card key={`${r.id}-${idx}`} className="group hover:border-primary/50 transition-all duration-300 overflow-hidden premium-shadow bg-card/60 backdrop-blur-sm">
+                    <CardContent className="p-0">
+                      <Link to={`/books/${r.book_id}?page=${r.page_number}`} className="flex flex-col sm:flex-row p-6 items-start gap-6 cursor-pointer">
+                        <div className="bg-primary/5 p-4 rounded-2xl group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-300">
+                           <FileCheck className="h-8 w-8 text-primary group-hover:text-primary-foreground transition-colors" />
+                        </div>
+                        <div className="flex-1 space-y-2 w-full">
+                           <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <h3 className="font-bold text-lg text-foreground group-hover:text-primary transition-colors">{r.book_title}</h3>
+                                <div className="flex gap-2 items-center text-sm font-medium text-muted-foreground/80">
+                                   <span>صفحة {r.page_number}</span>
+                                </div>
+                              </div>
+                              {globalSearchMode === "semantic" && (
+                                <Badge variant="secondary" className="font-mono bg-primary/10 text-primary hover:bg-primary/20">
+                                  دقة: {Math.round(r.score * 100)}%
+                                </Badge>
+                              )}
+                           </div>
+                           <p className="text-sm text-muted-foreground/90 leading-relaxed font-serif p-4 bg-muted/30 rounded-xl" dir="rtl">
+                             {r.extracted_text}
+                           </p>
+                        </div>
+                      </Link>
+                    </CardContent>
+                  </Card>
+                ))}
+             </div>
+           </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-6">
+               <h2 className="text-2xl font-bold">المستندات الأخيرة</h2>
+               <div className="h-px flex-1 bg-muted mx-4 hidden md:block" />
+            </div>
+
+            {loading ? (
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
              {[1,2,3].map(i => (
                <Card key={i} className="h-64 animate-pulse bg-muted/50 border-none" />
@@ -212,7 +330,10 @@ export function DashboardPage() {
             ))}
           </div>
         )}
+        </>
+        )}
       </div>
     </div>
+
   )
 }

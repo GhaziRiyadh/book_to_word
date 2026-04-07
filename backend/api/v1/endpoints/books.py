@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -20,8 +20,72 @@ from core.config import settings
 from utils.embeddings import get_local_embedding
 import asyncio
 
+import datetime
+from pydantic import BaseModel
+
 router = APIRouter()
 
+class PagePublishItem(BaseModel):
+    page_id: str
+    extracted_text: str
+
+class PublishAllPayload(BaseModel):
+    pages: List[PagePublishItem]
+
+@router.post("/{book_id}/publish_all")
+async def publish_all_pages(
+    book_id: str,
+    payload: PublishAllPayload,
+    db: AsyncSession = Depends(get_async_db)
+):
+    book = await db.get(Book, book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    # Map the submitted texts by page_id for quick lookup
+    text_updates = {item.page_id: item.extracted_text for item in payload.pages}
+    
+    # Get all pages in this book
+    result = await db.execute(select(Page).options(selectinload(Page.ocr_results)).where(Page.book_id == book_id))
+    pages = result.scalars().all()
+    
+    for page in pages:
+        if page.id in text_updates:
+            new_text = text_updates[page.id]
+            
+            # Find the latest OCR record, or create it if none exists
+            ocr_record = next(iter(page.ocr_results), None)
+            
+            # Flag to decide if we need to embed
+            needs_embedding = False
+            
+            if not ocr_record:
+                # No existing record, create one and embed
+                ocr_record = OCRResult(page_id=page.id, extracted_text=new_text)
+                db.add(ocr_record)
+                needs_embedding = True
+            elif ocr_record.extracted_text != new_text:
+                # Text changed, update and embed
+                ocr_record.extracted_text = new_text
+                ocr_record.created_at = datetime.datetime.utcnow()
+                needs_embedding = True
+                
+            if needs_embedding:
+                try:
+                    embedding_vector = await asyncio.to_thread(get_local_embedding, new_text)
+                    if embedding_vector:
+                        ocr_record.embedding = np.array(embedding_vector, dtype='float32').tobytes()
+                except Exception as e:
+                    print(f"Error updating embedding in publish_all: {e}")
+                    
+        # Mark every page in the payload as Published
+        page.status = "Published"
+        
+    # Mark book as completed/published
+    book.status = "Completed"
+    
+    await db.commit()
+    return {"message": "All pages published successfully"}
 
 def _to_plain_text(raw_text: str) -> str:
     # Handle both plain text and simple HTML OCR output.
@@ -32,6 +96,90 @@ def _to_plain_text(raw_text: str) -> str:
     text = unescape(text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+@router.get("/global/search")
+async def global_search(
+    query: str, 
+    mode: str = Query("semantic", description="Search mode: semantic or keyword"),
+    db: AsyncSession = Depends(get_async_db)
+):
+    if not query:
+        return {"results": []}
+
+    # Keyword Search Mode
+    if mode == "keyword":
+        query_pattern = f"%{query}%"
+        result = await db.execute(
+            select(Page, OCRResult, Book)
+            .join(OCRResult, Page.id == OCRResult.page_id)
+            .join(Book, Page.book_id == Book.id)
+            .where(OCRResult.extracted_text.like(query_pattern))
+        )
+        rows = result.all()
+        
+        results = []
+        for page, ocr, book in rows:
+            text = _to_plain_text(ocr.extracted_text or "")
+            idx = text.lower().find(query.lower())
+            start = max(0, idx - 100)
+            end = min(len(text), idx + 200)
+            snippet = ("..." if start > 0 else "") + text[start:end] + ("..." if end < len(text) else "")
+            
+            results.append({
+                "id": page.id,
+                "book_id": book.id,
+                "book_title": book.title,
+                "page_number": page.page_number,
+                "extracted_text": snippet,
+                "score": 1.0, 
+                "status": page.status
+            })
+        return {"results": results[:30]}
+
+    # Semantic Search Mode
+    try:
+        query_embedding = await asyncio.to_thread(get_local_embedding, query)
+        if not query_embedding:
+            ai_adapter = AdapterFactory.get_adapter()
+            query_embedding = await ai_adapter.get_embedding(query)
+            
+        if not query_embedding:
+            return {"results": [], "error": "Could not generate query embedding"}
+        query_vec = np.array(query_embedding, dtype='float32')
+    except Exception as e:
+        return {"results": [], "error": str(e)}
+
+    result = await db.execute(
+        select(Page, OCRResult, Book)
+        .join(OCRResult, Page.id == OCRResult.page_id)
+        .join(Book, Page.book_id == Book.id)
+    )
+    rows = result.all()
+    
+    scored_map = {}
+    for page, ocr, book in rows:
+        if ocr.embedding:
+            page_vec = np.frombuffer(ocr.embedding, dtype='float32')
+            score = float(cosine_similarity(query_vec, page_vec))
+            
+            if score > 0.35:
+                if page.id not in scored_map or score > scored_map[page.id]["score"]:
+                    text = _to_plain_text(ocr.extracted_text or "")
+                    snippet = (text[:300] + "...") if len(text) > 300 else text
+                    
+                    scored_map[page.id] = {
+                        "id": page.id,
+                        "book_id": book.id,
+                        "book_title": book.title,
+                        "page_number": page.page_number,
+                        "extracted_text": snippet,
+                        "score": score,
+                        "status": page.status
+                    }
+    
+    scored_results = list(scored_map.values())
+    scored_results.sort(key=lambda x: x["score"], reverse=True)
+    return {"results": scored_results[:30]}
 
 @router.get("/")
 async def get_all_books(db: AsyncSession = Depends(get_async_db)):
@@ -73,6 +221,7 @@ async def get_all_books(db: AsyncSession = Depends(get_async_db)):
 
 @router.post("/upload")
 async def upload_book(
+    background_tasks: BackgroundTasks,
     title: str = Form(...),
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_async_db)
@@ -115,11 +264,16 @@ async def upload_book(
         db.add(page)
         
     await db.commit()
-    return {"message": "Files received successfully", "book_id": book.id, "pages_count": len(saved_paths)}
+    
+    # Automatically start processing in the background after upload
+    background_tasks.add_task(process_document_task, book.id)
+    
+    return {"message": "Files received successfully and processing started", "book_id": book.id, "pages_count": len(saved_paths)}
 
 @router.post("/{book_id}/process")
 async def process_book(
     book_id: str,
+    background_tasks: BackgroundTasks,
     prompt_mode: str | None = Query(None, description="OCR prompt mode override: normal or formatted"),
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -127,8 +281,8 @@ async def process_book(
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
 
-    await process_document_task(book_id, prompt_mode=prompt_mode)
-    return {"message": "Processing completed", "book_id": book_id, "prompt_mode": prompt_mode or settings.OCR_PROMPT_MODE}
+    background_tasks.add_task(process_document_task, book_id, prompt_mode=prompt_mode)
+    return {"message": "Processing started in background", "book_id": book_id, "prompt_mode": prompt_mode or settings.OCR_PROMPT_MODE}
 
 @router.get("/{book_id}/status")
 async def get_book_status(book_id: str, db: AsyncSession = Depends(get_async_db)):

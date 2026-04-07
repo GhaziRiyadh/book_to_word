@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Form, HTTPException, Query
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -63,6 +63,7 @@ async def update_page_ocr(
 @router.post("/{page_id}/process")
 async def reprocess_page(
     page_id: str,
+    background_tasks: BackgroundTasks,
     prompt_mode: str | None = Query(None, description="OCR prompt mode override: normal or formatted"),
     db: AsyncSession = Depends(get_async_db)
 ):
@@ -77,23 +78,18 @@ async def reprocess_page(
             "status": page.status,
         }
 
-    # Frontend orchestrates execution; this endpoint runs immediately.
     book = await db.get(Book, page.book_id)
     if book and book.status != "Processing":
         book.status = "Processing"
-        await db.commit()
+        
+    page.status = "Processing"
+    await db.commit()
 
-    await process_single_page_task(page_id, prompt_mode=prompt_mode)
+    background_tasks.add_task(process_single_page_task, page_id, prompt_mode=prompt_mode)
 
-    result = await db.execute(select(Page).where(Page.book_id == page.book_id))
-    all_pages = result.scalars().all()
-    if book and all(p.status in ["Completed", "Published"] for p in all_pages):
-        book.status = "Completed"
-        await db.commit()
-
-    refreshed_page = await db.get(Page, page_id)
     return {
-        "message": "Page reprocessing completed",
+        "message": "Page reprocessing started in background",
         "prompt_mode": prompt_mode or settings.OCR_PROMPT_MODE,
-        "status": refreshed_page.status if refreshed_page else "Completed",
+        "status": "Processing",
     }
+
