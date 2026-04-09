@@ -36,15 +36,19 @@ class GeminiAdapter(AIAdapter):
         logger.info("Gemini adapter initialized with model=%s", self.model_name)
 
     async def process_image(self, image: Image.Image, prompt: str) -> str:
-        logger.debug(
-            "Gemini process_image started prompt_len=%s image_size=%s",
-            len(prompt or ""),
-            image.size,
-        )
-        response = await self.model.generate_content_async([prompt, image])
-        result = response.text.strip() if response.text else ""
-        logger.debug("Gemini process_image completed output_len=%s", len(result))
-        return result
+        try:
+            logger.debug(
+                "Gemini process_image started prompt_len=%s image_size=%s",
+                len(prompt or ""),
+                image.size,
+            )
+            response = await self.model.generate_content_async([prompt, image])
+            result = response.text.strip() if response.text else ""
+            logger.debug("Gemini process_image completed output_len=%s", len(result))
+            return result
+        except Exception as e:
+            logger.error("Gemini process_image failed: %s", e)
+            return ""
 
     async def get_embedding(self, text: str) -> list[float]:
         try:
