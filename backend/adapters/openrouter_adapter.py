@@ -7,6 +7,7 @@ from typing import Any
 
 import requests
 from PIL import Image
+from core.config import settings
 
 from .base import AIAdapter
 
@@ -16,17 +17,20 @@ logger = logging.getLogger("ocr_service")
 class OpenRouterAdapter(AIAdapter):
     def __init__(
         self,
-        api_key: str,
-        model_name: str = "google/gemma-3-12b-it",
-        base_url: str = "https://openrouter.ai/api/v1",
+        api_key: str | None = None,
+        model_name: str | None = None,
+        base_url: str | None = None,
         http_referer: str | None = None,
         title: str | None = None,
     ):
-        self.api_key = api_key
-        self.model_name = model_name
-        self.base_url = base_url.rstrip("/")
-        self.http_referer = (http_referer or "").strip()
-        self.title = (title or "").strip()
+        self.api_key = (api_key or settings.OPENROUTER_API_KEY).strip()
+        if not self.api_key:
+            raise ValueError("OPENROUTER_API_KEY is not set in environment or .env file.")
+
+        self.model_name = (model_name or settings.OPENROUTER_MODEL).strip()
+        self.base_url = (base_url or settings.OPENROUTER_BASE_URL).rstrip("/")
+        self.http_referer = (http_referer if http_referer is not None else settings.OPENROUTER_HTTP_REFERER).strip()
+        self.title = (title if title is not None else settings.OPENROUTER_TITLE).strip()
 
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",

@@ -52,9 +52,9 @@ OCR_PROMPT_MODE_FORMATTED = "formatted"
 
 def _initialize_ai_adapter():
     global ai_adapter, _adapter_error
-    provider = os.getenv("AI_PROVIDER", "gemini")
+    provider = settings.AI_PROVIDER
     try:
-        ai_adapter = AdapterFactory.get_adapter()
+        ai_adapter = AdapterFactory.get_adapter(provider=provider)
         _adapter_error = None
         logger.info(f"AI Adapter ({provider}) configured successfully.")
     except Exception as e:
@@ -78,7 +78,7 @@ async def _ensure_ai_adapter_ready() -> bool:
 
 def get_adapter_health() -> dict:
     global _hf_prefetch_attempted
-    provider = os.getenv("AI_PROVIDER", "gemini").lower()
+    provider = settings.AI_PROVIDER.lower()
 
     # Health checks proactively verify HuggingFace model availability and
     # initialization state before OCR tasks are queued.

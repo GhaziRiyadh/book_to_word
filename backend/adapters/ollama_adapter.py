@@ -4,14 +4,20 @@ import logging
 from io import BytesIO
 import ollama
 from PIL import Image
+from core.config import settings
 from .base import AIAdapter
 
 logger = logging.getLogger("ocr_service")
 
 class OllamaAdapter(AIAdapter):
-    def __init__(self, base_url: str = "http://localhost:11434", model_name: str = "llama3.2-vision", embed_model: str = "nomic-embed-text"):
-        self.host = base_url
-        self.model_name = model_name
+    def __init__(
+        self,
+        base_url: str | None = None,
+        model_name: str | None = None,
+        embed_model: str = "nomic-embed-text",
+    ):
+        self.host = (base_url or settings.OLLAMA_BASE_URL).strip()
+        self.model_name = (model_name or settings.OLLAMA_MODEL).strip()
         self.embed_model = embed_model
         self.client = ollama.AsyncClient(host=self.host)
         logger.info(

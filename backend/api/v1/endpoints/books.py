@@ -140,7 +140,7 @@ async def global_search(
     try:
         query_embedding = await asyncio.to_thread(get_local_embedding, query)
         if not query_embedding:
-            ai_adapter = AdapterFactory.get_adapter()
+            ai_adapter = AdapterFactory.get_adapter(provider=settings.AI_PROVIDER)
             query_embedding = await ai_adapter.get_embedding(query)
             
         if not query_embedding:
@@ -234,14 +234,14 @@ async def upload_book(
     await db.commit()
     await db.refresh(book)
     
-    book_folder = os.path.join(settings.UPLOAD_DIR, book.id)
+    book_folder = os.path.join(settings.UPLOAD_DIR, str(book.id))
     os.makedirs(book_folder, exist_ok=True)
     
     saved_paths = []
     
     # Check if single PDF
-    if len(files) == 1 and files[0].filename.endswith(".pdf"):
-        pdf_path = os.path.join(book_folder, files[0].filename)
+    if len(files) == 1 and (files[0].filename.endswith(".pdf") if files[0].filename else False):
+        pdf_path = os.path.join(book_folder, (files[0].filename or "document.pdf"))
         async with aiofiles.open(pdf_path, 'wb') as out_file:
             content = await files[0].read()
             await out_file.write(content)
@@ -252,7 +252,7 @@ async def upload_book(
     else:
         # Multiple images
         for idx, file in enumerate(files):
-            file_path = os.path.join(book_folder, file.filename)
+            file_path = os.path.join(book_folder, (file.filename or f"image_{idx}.png"))
             async with aiofiles.open(file_path, 'wb') as out_file:
                 content = await file.read()
                 await out_file.write(content)
@@ -266,9 +266,9 @@ async def upload_book(
     await db.commit()
     
     # Automatically start processing in the background after upload
-    background_tasks.add_task(process_document_task, book.id)
+    background_tasks.add_task(process_document_task, f"{book.id}")
     
-    return {"message": "Files received successfully and processing started", "book_id": book.id, "pages_count": len(saved_paths)}
+    return {"message": "Files received successfully and processing started", "book_id": f"{book.id}", "pages_count": len(saved_paths)}
 
 @router.post("/{book_id}/process")
 async def process_book(
@@ -387,7 +387,7 @@ async def search_book(
         query_embedding = await asyncio.to_thread(get_local_embedding, query)
         if not query_embedding:
             # Fallback (optional)
-            ai_adapter = AdapterFactory.get_adapter()
+            ai_adapter = AdapterFactory.get_adapter(provider=settings.AI_PROVIDER)
             query_embedding = await ai_adapter.get_embedding(query)
             
         if not query_embedding:

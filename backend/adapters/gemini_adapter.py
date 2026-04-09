@@ -1,13 +1,27 @@
 import google.generativeai as genai
 import logging
 from PIL import Image
+from core.config import settings
 from .base import AIAdapter
 
 logger = logging.getLogger("ocr_service")
 
 class GeminiAdapter(AIAdapter):
-    def __init__(self, api_key: str, model_name: str = "models/gemini-2.0-flash", embed_model: str = "models/text-embedding-004"):
-        genai.configure(api_key=api_key)
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model_name: str | None = None,
+        embed_model: str = "models/text-embedding-004",
+    ):
+        api_key = (api_key or settings.GEMINI_API_KEY).strip()
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY is not set in environment or .env file.")
+
+        model_name = (model_name or settings.GEMINI_MODEL).strip()
+        if not model_name.startswith("models/"):
+            model_name = f"models/{model_name}"
+
+        genai.configure(api_key=api_key) # type: ignore
         self.model_name = model_name
         self.embed_model = embed_model
         logger.debug(
@@ -18,7 +32,7 @@ class GeminiAdapter(AIAdapter):
         generation_config = {
             "temperature": 0.0,
         }
-        self.model = genai.GenerativeModel(model_name=model_name, generation_config=generation_config)
+        self.model = genai.GenerativeModel(model_name=model_name, generation_config=generation_config) # type: ignore
         logger.info("Gemini adapter initialized with model=%s", self.model_name)
 
     async def process_image(self, image: Image.Image, prompt: str) -> str:
@@ -35,7 +49,7 @@ class GeminiAdapter(AIAdapter):
     async def get_embedding(self, text: str) -> list[float]:
         try:
             logger.debug("Gemini embedding request text_len=%s", len(text or ""))
-            result = genai.embed_content(
+            result = genai.embed_content( # type: ignore
                 model=self.embed_model,
                 content=text,
                 task_type="retrieval_document"

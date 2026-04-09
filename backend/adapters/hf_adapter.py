@@ -5,6 +5,7 @@ import logging
 from PIL import Image
 from huggingface_hub import snapshot_download
 from transformers import MllamaForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
+from core.config import settings
 from .base import AIAdapter
 
 logger = logging.getLogger("ocr_service")
@@ -40,24 +41,26 @@ def prefetch_huggingface_model(
 class HuggingFaceAdapter(AIAdapter):
     def __init__(
         self,
-        model_id: str = "meta-llama/Llama-3.2-11B-Vision-Instruct",
+        model_id: str | None = None,
         token: str | None = None,
-        offline_mode: bool = True,
-        allow_cpu_fallback: bool = True,
+        offline_mode: bool | None = None,
+        allow_cpu_fallback: bool | None = None,
     ):
         """
         Initializes the Llama-3.2-Vision model with 4-bit quantization.
         Llama-3.2 Vision doesn't strictly depend on sentencepiece (uses tiktoken).
         """
-        self.model_id = model_id
-        self.token = token
-        self.offline_mode = offline_mode
-        self.allow_cpu_fallback = allow_cpu_fallback
+        self.model_id = (model_id or settings.HF_MODEL_ID).strip()
+        self.token = token if token is not None else (settings.HF_TOKEN or None)
+        self.offline_mode = settings.HF_OFFLINE_MODE if offline_mode is None else offline_mode
+        self.allow_cpu_fallback = (
+            settings.HF_ALLOW_CPU_FALLBACK if allow_cpu_fallback is None else allow_cpu_fallback
+        )
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         logger.info(
             "Loading HuggingFace vision model '%s' on %s (offline_mode=%s)...",
-            model_id,
+            self.model_id,
             self.device,
             self.offline_mode,
         )
@@ -71,7 +74,7 @@ class HuggingFaceAdapter(AIAdapter):
                     bnb_4bit_use_double_quant=True,
                 )
                 self.model = MllamaForConditionalGeneration.from_pretrained(
-                    model_id,
+                    self.model_id,
                     torch_dtype=torch.float16,
                     quantization_config=bnb_config,
                     device_map="auto",
@@ -90,7 +93,7 @@ class HuggingFaceAdapter(AIAdapter):
                     "CUDA is unavailable. Falling back to CPU model loading; this may be very slow and memory intensive."
                 )
                 self.model = MllamaForConditionalGeneration.from_pretrained(
-                    model_id,
+                    self.model_id,
                     torch_dtype=torch.float32,
                     device_map="cpu",
                     token=self.token,
@@ -99,12 +102,12 @@ class HuggingFaceAdapter(AIAdapter):
                 )
 
             self.processor = AutoProcessor.from_pretrained(
-                model_id,
+                self.model_id,
                 token=self.token,
                 local_files_only=self.offline_mode,
             )
             
-            logger.info(f"Model {model_id} loaded successfully.")
+            logger.info(f"Model {self.model_id} loaded successfully.")
             logger.debug(
                 "HuggingFaceAdapter init model_id=%s token_set=%s allow_cpu_fallback=%s",
                 self.model_id,
@@ -116,7 +119,7 @@ class HuggingFaceAdapter(AIAdapter):
                 "Failed to load HuggingFace model '%s'. Ensure you have model access, "
                 "CUDA runtime support, and compatible torch/bitsandbytes versions. "
                 "If offline_mode=true, ensure model files already exist locally in the HuggingFace cache. Error: %s",
-                model_id,
+                self.model_id,
                 e,
             )
             raise
