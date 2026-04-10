@@ -45,9 +45,22 @@ _adapter_error = None
 _adapter_init_lock = asyncio.Lock()
 _adapter_init_sync_lock = threading.Lock()
 _hf_prefetch_attempted = False
+_cancelled_book_ids: set[str] = set()
 
 OCR_PROMPT_MODE_NORMAL = "normal"
 OCR_PROMPT_MODE_FORMATTED = "formatted"
+
+
+def request_book_stop(book_id: str) -> None:
+    _cancelled_book_ids.add(book_id)
+
+
+def clear_book_stop(book_id: str) -> None:
+    _cancelled_book_ids.discard(book_id)
+
+
+def is_book_stop_requested(book_id: str) -> bool:
+    return book_id in _cancelled_book_ids
 
 
 def _initialize_ai_adapter():
@@ -170,6 +183,10 @@ async def process_uploaded_book(book_id: str, source_paths: list[str], prompt_mo
     Materialize uploaded files into page records and then run OCR in the background.
     """
     try:
+        if is_book_stop_requested(book_id):
+            logger.info("Upload processing skipped because stop was requested for book %s.", book_id)
+            return
+
         async with AsyncSessionLocal() as db:
             book = await db.get(Book, book_id)
             if not book:
@@ -183,6 +200,11 @@ async def process_uploaded_book(book_id: str, source_paths: list[str], prompt_mo
                 saved_paths = await handle_pdf_upload(source_paths[0], settings.UPLOAD_DIR)
             else:
                 saved_paths = [path for path in source_paths if os.path.exists(path)]
+
+            if is_book_stop_requested(book_id):
+                book.status = "Stopped"
+                await db.commit()
+                return
 
             if not saved_paths:
                 logger.error("No pages could be created for uploaded book %s.", book_id)
@@ -334,6 +356,12 @@ async def process_document_task(book_id: str, prompt_mode: str | None = None):
             if not book:
                 logger.error(f"Book {book_id} not found.")
                 return
+
+            if is_book_stop_requested(book_id):
+                book.status = "Stopped"
+                await db.commit()
+                logger.info("Stopping OCR task before start for book %s.", book_id)
+                return
             
             book.status = "Processing"
             await db.commit()
@@ -353,6 +381,12 @@ async def process_document_task(book_id: str, prompt_mode: str | None = None):
 
             for page in pages_to_process:
                 try:
+                    if is_book_stop_requested(book_id):
+                        book.status = "Stopped"
+                        await db.commit()
+                        logger.info("Stopping OCR task for book %s before page %s.", book_id, page.page_number)
+                        return
+
                     page.status = "Processing"
                     await db.commit()
                     
@@ -366,7 +400,10 @@ async def process_document_task(book_id: str, prompt_mode: str | None = None):
                     await db.commit()
                     continue 
 
-            book.status = "Completed"
+            if is_book_stop_requested(book_id):
+                book.status = "Stopped"
+            else:
+                book.status = "Completed"
             await db.commit()
             logger.info(f"Completed OCR task for book: {book_id}")
 
@@ -375,7 +412,7 @@ async def process_document_task(book_id: str, prompt_mode: str | None = None):
         async with AsyncSessionLocal() as fail_db:
             book = await fail_db.get(Book, book_id)
             if book:
-                book.status = "Failed"
+                book.status = "Stopped" if is_book_stop_requested(book_id) else "Failed"
                 await fail_db.commit()
 
 async def process_single_page_task(page_id: str, prompt_mode: str | None = None):

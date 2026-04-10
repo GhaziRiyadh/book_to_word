@@ -15,6 +15,7 @@ from docx import Document
 from database import get_async_db
 from models import Book, Page, OCRResult
 from services import process_document_task, process_uploaded_book
+from services import clear_book_stop, request_book_stop, is_book_stop_requested
 from adapters.factory import AdapterFactory
 from utils.math import cosine_similarity
 from core.config import settings
@@ -248,6 +249,7 @@ async def delete_book(book_id: str, db: AsyncSession = Depends(get_async_db)):
 
     await db.execute(delete(Book).where(Book.id == book_id))
     await db.commit()
+    clear_book_stop(book_id)
 
     return {"message": "Book deleted successfully", "book_id": book_id}
 
@@ -266,6 +268,7 @@ async def upload_book(
     book.status = "Processing"
     await db.commit()
     await db.refresh(book)
+    clear_book_stop(book.id)
     
     book_folder = os.path.join(settings.UPLOAD_DIR, str(book.id))
     os.makedirs(book_folder, exist_ok=True)
@@ -296,6 +299,25 @@ async def upload_book(
     
     return {"message": "Files received successfully and processing started", "book_id": f"{book.id}", "pages_count": 0}
 
+
+@router.post("/{book_id}/stop")
+async def stop_book_processing(book_id: str, db: AsyncSession = Depends(get_async_db)):
+    book = await db.get(Book, book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    request_book_stop(book_id)
+    book.status = "Stopped"
+
+    result = await db.execute(select(Page).where(Page.book_id == book_id))
+    pages = result.scalars().all()
+    for page in pages:
+        if page.status in {"Pending", "Processing"}:
+            page.status = "Stopped"
+
+    await db.commit()
+    return {"message": "Book processing stop requested", "book_id": book_id, "stopped": is_book_stop_requested(book_id)}
+
 @router.post("/{book_id}/process")
 async def process_book(
     book_id: str,
@@ -306,6 +328,11 @@ async def process_book(
     book = await db.get(Book, book_id)
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
+
+    clear_book_stop(book_id)
+    if book.status == "Stopped":
+        book.status = "Processing"
+        await db.commit()
 
     background_tasks.add_task(process_document_task, book_id, prompt_mode=prompt_mode)
     return {"message": "Processing started in background", "book_id": book_id, "prompt_mode": prompt_mode or settings.OCR_PROMPT_MODE}

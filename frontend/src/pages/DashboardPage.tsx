@@ -308,10 +308,12 @@ export function DashboardPage() {
                   <Badge className="absolute top-3 left-3 shadow-lg" variant={
                     book.status === 'Completed' ? 'default' :
                     book.status === 'Processing' ? 'secondary' :
+                    book.status === 'Stopped' ? 'destructive' :
                     book.status === 'Failed' ? 'destructive' : 'outline'
                   }>
                     {book.status === 'Completed' ? 'مكتمل' :
                      book.status === 'Processing' ? 'جاري المعالجة' :
+                     book.status === 'Stopped' ? 'متوقف' :
                      book.status === 'Failed' ? 'فشل' : 'في الانتظار'}
                   </Badge>
                 </div>

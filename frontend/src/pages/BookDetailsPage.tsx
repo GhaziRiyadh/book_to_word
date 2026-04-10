@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress"
 // import { ScrollArea } from "@/components/ui/scroll-area" // Unused after refactor to scientific layout
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, CheckCircle2, Printer, Download, RefreshCw, ChevronDown, Layers, Search, FileCheck, ArrowRight, ArrowLeft, Trash2 } from "lucide-react"
+import { Loader2, CheckCircle2, Printer, Download, RefreshCw, ChevronDown, Layers, Search, FileCheck, ArrowRight, ArrowLeft, Trash2, CircleStop } from "lucide-react"
 
 const API_URL = "http://localhost:8000/api/v1"
 const BACKEND_URL = "http://localhost:8000"
@@ -43,6 +43,7 @@ export function BookDetailsPage() {
   const [editingTexts, setEditingTexts] = useState<Record<string, string>>({})
   const [savingPages, setSavingPages] = useState<Record<string, boolean>>({})
   const [isDeletingBook, setIsDeletingBook] = useState(false)
+  const [isStoppingBook, setIsStoppingBook] = useState(false)
   
   // Advanced Search & Navigation State
   const [searchQuery, setSearchQuery] = useState("")
@@ -190,6 +191,21 @@ export function BookDetailsPage() {
       console.error("Failed to delete book:", error)
     } finally {
       setIsDeletingBook(false)
+    }
+  }
+
+  const handleStopBook = async () => {
+    if (!id) return
+
+    try {
+      setIsStoppingBook(true)
+      await axios.post(`${API_URL}/books/${id}/stop`)
+      await fetchBookStatus(true)
+      await fetchResults()
+    } catch (error) {
+      console.error("Failed to stop book processing:", error)
+    } finally {
+      setIsStoppingBook(false)
     }
   }
 
@@ -426,7 +442,12 @@ export function BookDetailsPage() {
             <h1 className="text-3xl font-extrabold tracking-tight text-gradient">{bookStatus?.title || "جاري التحميل..."}</h1>
             <div className="flex items-center gap-2 mt-1">
               <Badge variant="outline" className="bg-primary/5 border-primary/20 text-primary uppercase text-[10px] font-bold tracking-wider">{bookStatus?.progress} صفحات</Badge>
-              <Badge variant={bookStatus?.status === "Processing" ? "secondary" : "default"} className="uppercase text-[10px] font-bold tracking-wider">{bookStatus?.status}</Badge>
+              <Badge
+                variant={bookStatus?.status === "Processing" ? "secondary" : bookStatus?.status === "Stopped" ? "destructive" : "default"}
+                className="uppercase text-[10px] font-bold tracking-wider"
+              >
+                {bookStatus?.status}
+              </Badge>
             </div>
           </div>
           
@@ -527,6 +548,16 @@ export function BookDetailsPage() {
             </div>
 
             <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleStopBook}
+                disabled={isStoppingBook || !(bookStatus?.status === "Processing" || bookStatus?.status === "Pending")}
+                className="border-destructive/30 text-destructive hover:bg-destructive/10"
+              >
+                {isStoppingBook ? <Loader2 className="h-4 w-4 ml-2 animate-spin" /> : <CircleStop className="h-4 w-4 ml-2" />}
+                إيقاف
+              </Button>
               <Button size="sm" variant="default" onClick={handlePublishAll} disabled={isPublishingAll || results.length === 0} className="bg-green-600 hover:bg-green-700 text-white">
                 {isPublishingAll ? <Loader2 className="h-4 w-4 ml-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 ml-2" />}
                 نشر الكل
