@@ -94,7 +94,7 @@ HF_TOKEN=
 1. **Start Backend**:
    ```bash
    cd backend
-   uvicorn main:app --reload
+   uvicorn main:app --workers 4
    ```
 
 2. **Start Frontend**:
@@ -104,6 +104,8 @@ HF_TOKEN=
    ```
 
 The application will be available at `http://localhost:5173`.
+
+For production or Docker, the backend runs with multiple Uvicorn workers via `WEB_CONCURRENCY`. Increase it to match your CPU cores if you want higher request concurrency.
 
 ## 📖 Usage Guide
 

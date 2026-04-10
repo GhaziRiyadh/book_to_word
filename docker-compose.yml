@@ -26,6 +26,7 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://ocr_user:ocr_password@db:5432/book_to_word
+      - WEB_CONCURRENCY=4
     depends_on:
       - db
     volumes:

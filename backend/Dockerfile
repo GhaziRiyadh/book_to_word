@@ -17,4 +17,6 @@ RUN pip install --no-cache-dir asyncpg
 
 COPY . .
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENV WEB_CONCURRENCY=4
+
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY}"]

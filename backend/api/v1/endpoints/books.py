@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
 from typing import List
 import os
 import re
+import shutil
 from html import unescape
 import aiofiles
 import numpy as np
@@ -218,6 +219,37 @@ async def get_all_books(db: AsyncSession = Depends(get_async_db)):
         })
         
     return {"books": response_books}
+
+
+@router.delete("/{book_id}")
+async def delete_book(book_id: str, db: AsyncSession = Depends(get_async_db)):
+    book = await db.get(Book, book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    result = await db.execute(select(Page.id, Page.image_path).where(Page.book_id == book_id))
+    page_rows = result.all()
+    page_ids = [page_id for page_id, _ in page_rows]
+
+    if page_ids:
+        await db.execute(delete(OCRResult).where(OCRResult.page_id.in_(page_ids)))
+        await db.execute(delete(Page).where(Page.id.in_(page_ids)))
+
+    upload_folder = os.path.join(settings.UPLOAD_DIR, book_id)
+    if os.path.isdir(upload_folder):
+        shutil.rmtree(upload_folder, ignore_errors=True)
+
+    export_path = os.path.join(settings.UPLOAD_DIR, f"{book_id}_export.docx")
+    if os.path.exists(export_path):
+        try:
+            os.remove(export_path)
+        except OSError:
+            pass
+
+    await db.execute(delete(Book).where(Book.id == book_id))
+    await db.commit()
+
+    return {"message": "Book deleted successfully", "book_id": book_id}
 
 @router.post("/upload")
 async def upload_book(

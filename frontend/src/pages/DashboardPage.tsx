@@ -4,7 +4,7 @@ import axios from "axios"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { BookOpen, Clock, CheckCircle2, Plus, ArrowRight, RefreshCw, Loader2, Search, FileCheck } from "lucide-react"
+import { BookOpen, Clock, CheckCircle2, Plus, ArrowRight, RefreshCw, Loader2, Search, FileCheck, Trash2 } from "lucide-react"
 
 
 const API_URL = "http://localhost:8000/api/v1"
@@ -22,6 +22,7 @@ export function DashboardPage() {
   const [books, setBooks] = useState<Book[]>([])
   const [loading, setLoading] = useState(true)
   const [processingBookId, setProcessingBookId] = useState<string | null>(null)
+  const [deletingBookId, setDeletingBookId] = useState<string | null>(null)
 
   const [globalSearchQuery, setGlobalSearchQuery] = useState("")
   const [globalSearchMode, setGlobalSearchMode] = useState<"semantic" | "keyword">("keyword")
@@ -69,6 +70,21 @@ export function DashboardPage() {
       console.error("Failed to reprocess book", error)
     } finally {
       setProcessingBookId(null)
+    }
+  }
+
+  const handleDeleteBook = async (bookId: string) => {
+    const confirmed = window.confirm("هل تريد حذف هذا الكتاب نهائياً؟ سيتم حذف كل الصفحات والملفات المرتبطة به.")
+    if (!confirmed) return
+
+    try {
+      setDeletingBookId(bookId)
+      await axios.delete(`${API_URL}/books/${bookId}`)
+      await fetchBooks()
+    } catch (error) {
+      console.error("Failed to delete book", error)
+    } finally {
+      setDeletingBookId(null)
     }
   }
 
@@ -324,6 +340,15 @@ export function DashboardPage() {
                      disabled={book.status === 'Processing' || processingBookId === book.id}
                    >
                      {processingBookId === book.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                   </Button>
+                   <Button 
+                     size="icon" 
+                     variant="ghost" 
+                     className="rounded-lg hover:bg-destructive/10 hover:text-destructive"
+                     onClick={() => handleDeleteBook(book.id)}
+                     disabled={deletingBookId === book.id || book.status === 'Processing'}
+                   >
+                     {deletingBookId === book.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                    </Button>
                 </CardFooter>
               </Card>

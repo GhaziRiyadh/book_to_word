@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Link, useParams, useLocation } from "react-router-dom"
+import { Link, useParams, useLocation, useNavigate } from "react-router-dom"
 import axios from "axios"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress"
 // import { ScrollArea } from "@/components/ui/scroll-area" // Unused after refactor to scientific layout
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, CheckCircle2, Printer, Download, RefreshCw, ChevronDown, Layers, Search, FileCheck, ArrowRight, ArrowLeft } from "lucide-react"
+import { Loader2, CheckCircle2, Printer, Download, RefreshCw, ChevronDown, Layers, Search, FileCheck, ArrowRight, ArrowLeft, Trash2 } from "lucide-react"
 
 const API_URL = "http://localhost:8000/api/v1"
 const BACKEND_URL = "http://localhost:8000"
@@ -32,6 +32,7 @@ type BookStatus = {
 export function BookDetailsPage() {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
+  const navigate = useNavigate()
   const [bookStatus, setBookStatus] = useState<BookStatus | null>(null)
   const [results, setResults] = useState<PageResult[]>([])
   const [isReprocessing, setIsReprocessing] = useState(false)
@@ -41,6 +42,7 @@ export function BookDetailsPage() {
   const [expandedPageId, setExpandedPageId] = useState<string | null>(null)
   const [editingTexts, setEditingTexts] = useState<Record<string, string>>({})
   const [savingPages, setSavingPages] = useState<Record<string, boolean>>({})
+  const [isDeletingBook, setIsDeletingBook] = useState(false)
   
   // Advanced Search & Navigation State
   const [searchQuery, setSearchQuery] = useState("")
@@ -171,6 +173,23 @@ export function BookDetailsPage() {
       console.error("Failed to reprocess:", error)
     } finally {
       setIsReprocessing(false)
+    }
+  }
+
+  const handleDeleteBook = async () => {
+    if (!id) return
+
+    const confirmed = window.confirm("هل تريد حذف هذا الكتاب نهائياً؟ سيتم حذف كل الصفحات والملفات المرتبطة به.")
+    if (!confirmed) return
+
+    try {
+      setIsDeletingBook(true)
+      await axios.delete(`${API_URL}/books/${id}`)
+      navigate("/")
+    } catch (error) {
+      console.error("Failed to delete book:", error)
+    } finally {
+      setIsDeletingBook(false)
     }
   }
 
@@ -526,6 +545,15 @@ export function BookDetailsPage() {
               }} disabled={isExporting}>
                 <Download className="h-4 w-4 ml-2" />
                 {isExporting ? "..." : "تصدير Word"}
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={handleDeleteBook}
+                disabled={isDeletingBook || bookStatus?.status === "Processing"}
+              >
+                {isDeletingBook ? <Loader2 className="h-4 w-4 ml-2 animate-spin" /> : <Trash2 className="h-4 w-4 ml-2" />}
+                حذف الكتاب
               </Button>
             </div>
           </div>
