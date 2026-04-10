@@ -165,6 +165,46 @@ async def check_semantic_readiness():
         logger.error("Failed to perform semantic readiness check/repair: %s", e)
 
 
+async def process_uploaded_book(book_id: str, source_paths: list[str], prompt_mode: str | None = None):
+    """
+    Materialize uploaded files into page records and then run OCR in the background.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            book = await db.get(Book, book_id)
+            if not book:
+                logger.error("Uploaded book %s not found.", book_id)
+                return
+
+            book.status = "Processing"
+            await db.commit()
+
+            if len(source_paths) == 1 and source_paths[0].lower().endswith(".pdf"):
+                saved_paths = await handle_pdf_upload(source_paths[0], settings.UPLOAD_DIR)
+            else:
+                saved_paths = [path for path in source_paths if os.path.exists(path)]
+
+            if not saved_paths:
+                logger.error("No pages could be created for uploaded book %s.", book_id)
+                book.status = "Failed"
+                await db.commit()
+                return
+
+            for i, path in enumerate(saved_paths):
+                db.add(Page(book_id=book_id, page_number=i + 1, image_path=path))
+
+            await db.commit()
+
+        await process_document_task(book_id, prompt_mode=prompt_mode)
+    except Exception as e:
+        logger.error("Failed to process uploaded book %s: %s", book_id, e)
+        async with AsyncSessionLocal() as fail_db:
+            book = await fail_db.get(Book, book_id)
+            if book:
+                book.status = "Failed"
+                await fail_db.commit()
+
+
 # Initialize once on import; tasks can still retry if startup initialization fails.
 _initialize_ai_adapter()
 

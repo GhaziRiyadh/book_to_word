@@ -145,9 +145,9 @@ export function BookDetailsPage() {
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>
 
-    // Poll every 3 seconds only while a book is processing.
+    // Poll every 3 seconds while the upload/processing job is still running.
     interval = setInterval(() => {
-      if (currentBookStatusRef.current === "Processing") {
+      if (currentBookStatusRef.current === "Processing" || currentBookStatusRef.current === "Pending") {
         fetchBookStatus(true)
       }
     }, 3000)
@@ -207,11 +207,6 @@ export function BookDetailsPage() {
         const statusRes = await axios.get(`${API_URL}/books/${id}/status`)
         setBookStatus(statusRes.data)
         currentBookStatusRef.current = statusRes.data.status
-        if (statusRes.data.status === "Processing") {
-          setResumeAttempted(true)
-          await handleReprocess()
-          return
-        }
 
         setResumeAttempted(true)
       } catch (error) {
@@ -367,6 +362,8 @@ export function BookDetailsPage() {
     if (statusFilter === "published") return p.status === "Published"
     return true
   })
+
+  const isWaitingForPages = (bookStatus?.status === "Processing" || bookStatus?.status === "Pending") && results.length === 0
 
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-6 overflow-hidden px-4 sm:px-6">
@@ -571,6 +568,17 @@ export function BookDetailsPage() {
 
         {/* Page List Rendering */}
         <div className="space-y-8">
+          {isWaitingForPages && (
+            <Card className="border-dashed border-primary/30 bg-primary/5">
+              <CardContent className="p-6 flex items-center gap-4">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <div>
+                  <p className="font-semibold">جاري تجهيز الصفحات في الخلفية</p>
+                  <p className="text-sm text-muted-foreground">سيظهر المحتوى هنا تلقائياً بعد اكتمال تحويل الملفات ثم بدء OCR.</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {filteredResults.map((page) => {
             const imagePathFormatted = page.image_path.replace(/\\/g, "/")
             const imgParts = imagePathFormatted.split("uploads/")

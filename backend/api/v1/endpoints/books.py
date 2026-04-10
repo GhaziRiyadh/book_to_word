@@ -14,7 +14,7 @@ from docx import Document
 
 from database import get_async_db
 from models import Book, Page, OCRResult
-from services import handle_pdf_upload, process_document_task
+from services import process_document_task, process_uploaded_book
 from adapters.factory import AdapterFactory
 from utils.math import cosine_similarity
 from core.config import settings
@@ -263,6 +263,7 @@ async def upload_book(
         
     book = Book(title=title)
     db.add(book)
+    book.status = "Processing"
     await db.commit()
     await db.refresh(book)
     
@@ -277,10 +278,7 @@ async def upload_book(
         async with aiofiles.open(pdf_path, 'wb') as out_file:
             content = await files[0].read()
             await out_file.write(content)
-        try:
-            saved_paths = await handle_pdf_upload(pdf_path, settings.UPLOAD_DIR)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"PDF conversion failed: {str(e)}")
+        saved_paths = [pdf_path]
     else:
         # Multiple images
         for idx, file in enumerate(files):
@@ -291,16 +289,12 @@ async def upload_book(
             saved_paths.append(file_path)
             
     # Create Page records
-    for i, path in enumerate(saved_paths):
-        page = Page(book_id=book.id, page_number=i+1, image_path=path)
-        db.add(page)
-        
     await db.commit()
     
     # Automatically start processing in the background after upload
-    background_tasks.add_task(process_document_task, f"{book.id}")
+    background_tasks.add_task(process_uploaded_book, f"{book.id}", saved_paths)
     
-    return {"message": "Files received successfully and processing started", "book_id": f"{book.id}", "pages_count": len(saved_paths)}
+    return {"message": "Files received successfully and processing started", "book_id": f"{book.id}", "pages_count": 0}
 
 @router.post("/{book_id}/process")
 async def process_book(
