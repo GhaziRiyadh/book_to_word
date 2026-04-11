@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress"
 // import { ScrollArea } from "@/components/ui/scroll-area" // Unused after refactor to scientific layout
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, CheckCircle2, Printer, Download, RefreshCw, ChevronDown, Layers, Search, FileCheck, ArrowRight, ArrowLeft, Trash2, CircleStop } from "lucide-react"
+import { Loader2, CheckCircle2, Printer, Download, RefreshCw, ChevronDown, Layers, Search, FileCheck, ArrowRight, ArrowLeft, Trash2, CircleStop, Scissors } from "lucide-react"
 
 const API_URL = "http://localhost:8000/api/v1"
 const BACKEND_URL = "http://localhost:8000"
@@ -44,6 +44,7 @@ export function BookDetailsPage() {
   const [savingPages, setSavingPages] = useState<Record<string, boolean>>({})
   const [isDeletingBook, setIsDeletingBook] = useState(false)
   const [isStoppingBook, setIsStoppingBook] = useState(false)
+  const [isResplittingPages, setIsResplittingPages] = useState(false)
   
   // Advanced Search & Navigation State
   const [searchQuery, setSearchQuery] = useState("")
@@ -206,6 +207,24 @@ export function BookDetailsPage() {
       console.error("Failed to stop book processing:", error)
     } finally {
       setIsStoppingBook(false)
+    }
+  }
+
+  const handleResplitPages = async () => {
+    if (!id) return
+
+    const confirmed = window.confirm("هل تريد إعادة تقطيع الصفحات من ملف PDF الأصلي؟ سيتم حذف نتائج OCR الحالية للصفحات.")
+    if (!confirmed) return
+
+    try {
+      setIsResplittingPages(true)
+      await axios.post(`${API_URL}/books/${id}/resplit-pages`)
+      await fetchBookStatus(true)
+      await fetchResults()
+    } catch (error) {
+      console.error("Failed to re-split pages:", error)
+    } finally {
+      setIsResplittingPages(false)
     }
   }
 
@@ -547,7 +566,16 @@ export function BookDetailsPage() {
               </form>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleResplitPages}
+                disabled={isResplittingPages || bookStatus?.status === "Processing"}
+              >
+                {isResplittingPages ? <Loader2 className="h-4 w-4 ml-2 animate-spin" /> : <Scissors className="h-4 w-4 ml-2" />}
+                إعادة تقطيع الصفحات
+              </Button>
               <Button
                 size="sm"
                 variant="outline"

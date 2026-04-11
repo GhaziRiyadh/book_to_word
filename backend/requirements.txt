@@ -15,6 +15,7 @@ aiosqlite
 pdf2image
 pillow
 opencv-python-headless
+pypdfium2
 
 # AI Models (Local)
 transformers

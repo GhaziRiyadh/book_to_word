@@ -9,6 +9,7 @@ import numpy as np
 from dotenv import load_dotenv
 from pdf2image import convert_from_path
 from PIL import Image
+import pypdfium2 as pdfium
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from models import Book, Page, OCRResult
@@ -464,19 +465,38 @@ async def handle_pdf_upload(file_path: str, upload_dir: str):
     Splits a PDF into images and saves them asynchronously.
     """
     logger.info(f"Converting PDF to images: {file_path}")
-    loop = asyncio.get_running_loop()
-    
-    def _convert():
-        kwargs = {"poppler_path": POPPLER_PATH} if POPPLER_PATH else {}
-        return convert_from_path(file_path, **kwargs)
-    
-    images = await loop.run_in_executor(None, _convert)
     saved_paths = []
     book_folder = os.path.dirname(file_path)
-    
-    for i, image in enumerate(images):
-        page_path = os.path.join(book_folder, f"page_{i+1:03d}.png")
-        image.save(page_path, "PNG")
-        saved_paths.append(page_path)
-        
-    return saved_paths
+
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _convert_with_poppler():
+            kwargs = {"poppler_path": POPPLER_PATH} if POPPLER_PATH else {}
+            return convert_from_path(file_path, **kwargs)
+
+        images = await loop.run_in_executor(None, _convert_with_poppler)
+
+        for i, image in enumerate(images):
+            page_path = os.path.join(book_folder, f"page_{i+1:03d}.png")
+            image.save(page_path, "PNG")
+            saved_paths.append(page_path)
+
+        return saved_paths
+    except Exception as poppler_error:
+        logger.warning("Poppler PDF conversion failed for %s, using pypdfium2 fallback: %s", file_path, poppler_error)
+
+    try:
+        document = pdfium.PdfDocument(file_path)
+        for i in range(len(document)):
+            page = document[i]
+            bitmap = page.render(scale=2)
+            image = bitmap.to_pil()
+            page_path = os.path.join(book_folder, f"page_{i+1:03d}.png")
+            image.save(page_path, "PNG")
+            saved_paths.append(page_path)
+
+        return saved_paths
+    except Exception as fallback_error:
+        logger.error("PDF conversion failed for %s using both Poppler and pypdfium2: %s", file_path, fallback_error)
+        raise

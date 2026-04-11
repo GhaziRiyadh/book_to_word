@@ -14,7 +14,7 @@ from docx import Document
 
 from database import get_async_db
 from models import Book, Page, OCRResult
-from services import process_document_task, process_uploaded_book
+from services import handle_pdf_upload, process_document_task
 from services import clear_book_stop, request_book_stop, is_book_stop_requested
 from adapters.factory import AdapterFactory
 from utils.math import cosine_similarity
@@ -265,10 +265,9 @@ async def upload_book(
         
     book = Book(title=title)
     db.add(book)
-    book.status = "Processing"
     await db.commit()
     await db.refresh(book)
-    clear_book_stop(book.id)
+    clear_book_stop(str(book.id))
     
     book_folder = os.path.join(settings.UPLOAD_DIR, str(book.id))
     os.makedirs(book_folder, exist_ok=True)
@@ -281,7 +280,10 @@ async def upload_book(
         async with aiofiles.open(pdf_path, 'wb') as out_file:
             content = await files[0].read()
             await out_file.write(content)
-        saved_paths = [pdf_path]
+        try:
+            saved_paths = await handle_pdf_upload(pdf_path, settings.UPLOAD_DIR)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"PDF conversion failed: {str(e)}")
     else:
         # Multiple images
         for idx, file in enumerate(files):
@@ -292,12 +294,16 @@ async def upload_book(
             saved_paths.append(file_path)
             
     # Create Page records
+    for i, path in enumerate(saved_paths):
+        page = Page(book_id=book.id, page_number=i + 1, image_path=path)
+        db.add(page)
+
     await db.commit()
     
     # Automatically start processing in the background after upload
-    background_tasks.add_task(process_uploaded_book, f"{book.id}", saved_paths)
+    background_tasks.add_task(process_document_task, f"{book.id}")
     
-    return {"message": "Files received successfully and processing started", "book_id": f"{book.id}", "pages_count": 0}
+    return {"message": "Files received successfully and processing started", "book_id": f"{book.id}", "pages_count": len(saved_paths)}
 
 
 @router.post("/{book_id}/stop")
@@ -336,6 +342,60 @@ async def process_book(
 
     background_tasks.add_task(process_document_task, book_id, prompt_mode=prompt_mode)
     return {"message": "Processing started in background", "book_id": book_id, "prompt_mode": prompt_mode or settings.OCR_PROMPT_MODE}
+
+
+@router.post("/{book_id}/resplit-pages")
+async def resplit_book_pages(book_id: str, db: AsyncSession = Depends(get_async_db)):
+    book = await db.get(Book, book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    if book.status == "Processing":
+        raise HTTPException(status_code=409, detail="Book is processing. Stop it first before re-splitting pages")
+
+    book_folder = os.path.join(settings.UPLOAD_DIR, str(book_id))
+    if not os.path.isdir(book_folder):
+        raise HTTPException(status_code=404, detail="Book upload folder not found")
+
+    pdf_candidates = [
+        os.path.join(book_folder, name)
+        for name in os.listdir(book_folder)
+        if name.lower().endswith(".pdf")
+    ]
+    if not pdf_candidates:
+        raise HTTPException(status_code=400, detail="No source PDF found for this book")
+
+    source_pdf = pdf_candidates[0]
+
+    pages_result = await db.execute(select(Page).where(Page.book_id == book_id))
+    pages = pages_result.scalars().all()
+    page_ids = [p.id for p in pages]
+
+    if page_ids:
+        await db.execute(delete(OCRResult).where(OCRResult.page_id.in_(page_ids)))
+        await db.execute(delete(Page).where(Page.id.in_(page_ids)))
+
+    for name in os.listdir(book_folder):
+        lower_name = name.lower()
+        if lower_name.endswith(".png") and lower_name.startswith("page_"):
+            try:
+                os.remove(os.path.join(book_folder, name))
+            except OSError:
+                pass
+
+    try:
+        saved_paths = await handle_pdf_upload(source_pdf, settings.UPLOAD_DIR)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF conversion failed: {str(e)}")
+
+    for i, path in enumerate(saved_paths):
+        db.add(Page(book_id=book_id, page_number=i + 1, image_path=path))
+
+    clear_book_stop(book_id)
+    book.status = "Pending"
+    await db.commit()
+
+    return {"message": "Pages re-splitted successfully", "book_id": book_id, "pages_count": len(saved_paths)}
 
 @router.get("/{book_id}/status")
 async def get_book_status(book_id: str, db: AsyncSession = Depends(get_async_db)):
