@@ -399,6 +399,19 @@ export function BookDetailsPage() {
   })
 
   const isWaitingForPages = (bookStatus?.status === "Processing" || bookStatus?.status === "Pending") && results.length === 0
+  const currentStatus = bookStatus?.status || "Pending"
+  const currentStatusLabel =
+    currentStatus === "Processing"
+      ? "قيد المعالجة"
+      : currentStatus === "Completed"
+      ? "مكتمل"
+      : currentStatus === "Pending"
+      ? "بانتظار البدء"
+      : currentStatus === "Stopped"
+      ? "متوقف"
+      : currentStatus === "Failed"
+      ? "فشل"
+      : currentStatus
 
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-6 overflow-hidden px-4 sm:px-6">
@@ -451,28 +464,28 @@ export function BookDetailsPage() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 pb-20 overflow-y-auto scrollbar-hide px-2">
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 sticky top-0 bg-background/80 backdrop-blur pb-4 z-10 print:hidden">
+        <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6 sticky top-0 bg-background/90 backdrop-blur-md pb-4 z-10 print:hidden border-b border-border/40">
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                <Link to="/" className="hover:text-primary transition-colors">الرئيسية</Link>
                <span>/</span>
-               <span className="text-foreground font-medium truncate max-w-[200px]">{bookStatus?.title || "..."}</span>
+               <span className="text-foreground font-medium truncate max-w-[260px] sm:max-w-[420px]">{bookStatus?.title || "..."}</span>
             </div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-gradient">{bookStatus?.title || "جاري التحميل..."}</h1>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-gradient">{bookStatus?.title || "جاري التحميل..."}</h1>
             <div className="flex items-center gap-2 mt-1">
               <Badge variant="outline" className="bg-primary/5 border-primary/20 text-primary uppercase text-[10px] font-bold tracking-wider">{bookStatus?.progress} صفحات</Badge>
               <Badge
-                variant={bookStatus?.status === "Processing" ? "secondary" : bookStatus?.status === "Stopped" ? "destructive" : "default"}
+                variant={currentStatus === "Processing" ? "secondary" : currentStatus === "Stopped" || currentStatus === "Failed" ? "destructive" : "default"}
                 className="uppercase text-[10px] font-bold tracking-wider"
               >
-                {bookStatus?.status}
+                {currentStatusLabel}
               </Badge>
             </div>
           </div>
           
-          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+          <div className="w-full xl:w-[min(980px,100%)] space-y-2">
             {/* Search Bar with Mode Toggle */}
-            <div className="flex flex-col gap-2 flex-1 min-w-[350px]">
+            <div className="w-full">
               <form onSubmit={handleSearch} className="relative flex items-center">
                 <input 
                   type="text" 
@@ -566,12 +579,14 @@ export function BookDetailsPage() {
               </form>
             </div>
 
-            <div className="flex gap-2 flex-wrap">
+            <div className="overflow-x-auto pb-1">
+              <div className="flex gap-2 w-max min-w-full">
               <Button
                 size="sm"
                 variant="outline"
                 onClick={handleResplitPages}
                 disabled={isResplittingPages || bookStatus?.status === "Processing"}
+                className="h-9 rounded-lg whitespace-nowrap"
               >
                 {isResplittingPages ? <Loader2 className="h-4 w-4 ml-2 animate-spin" /> : <Scissors className="h-4 w-4 ml-2" />}
                 إعادة تقطيع الصفحات
@@ -581,20 +596,20 @@ export function BookDetailsPage() {
                 variant="outline"
                 onClick={handleStopBook}
                 disabled={isStoppingBook || !(bookStatus?.status === "Processing" || bookStatus?.status === "Pending")}
-                className="border-destructive/30 text-destructive hover:bg-destructive/10"
+                className="h-9 rounded-lg whitespace-nowrap border-destructive/30 text-destructive hover:bg-destructive/10"
               >
                 {isStoppingBook ? <Loader2 className="h-4 w-4 ml-2 animate-spin" /> : <CircleStop className="h-4 w-4 ml-2" />}
                 إيقاف
               </Button>
-              <Button size="sm" variant="default" onClick={handlePublishAll} disabled={isPublishingAll || results.length === 0} className="bg-green-600 hover:bg-green-700 text-white">
+              <Button size="sm" variant="default" onClick={handlePublishAll} disabled={isPublishingAll || results.length === 0} className="h-9 rounded-lg whitespace-nowrap bg-green-600 hover:bg-green-700 text-white">
                 {isPublishingAll ? <Loader2 className="h-4 w-4 ml-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 ml-2" />}
                 نشر الكل
               </Button>
-              <Button variant="outline" size="sm" onClick={() => window.print()}>
+              <Button variant="outline" size="sm" onClick={() => window.print()} className="h-9 rounded-lg whitespace-nowrap">
                 <Printer className="h-4 w-4 ml-2" />
                 طباعة
               </Button>
-              <Button size="sm" onClick={async () => {
+              <Button size="sm" className="h-9 rounded-lg whitespace-nowrap" onClick={async () => {
                 setIsExporting(true)
                 window.open(`${API_URL}/books/${id}/export`, "_blank")
                 setIsExporting(false)
@@ -607,10 +622,12 @@ export function BookDetailsPage() {
                 variant="destructive"
                 onClick={handleDeleteBook}
                 disabled={isDeletingBook || bookStatus?.status === "Processing"}
+                className="h-9 rounded-lg whitespace-nowrap"
               >
                 {isDeletingBook ? <Loader2 className="h-4 w-4 ml-2 animate-spin" /> : <Trash2 className="h-4 w-4 ml-2" />}
                 حذف الكتاب
               </Button>
+              </div>
             </div>
           </div>
         </header>

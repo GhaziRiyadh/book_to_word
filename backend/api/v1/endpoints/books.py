@@ -281,7 +281,7 @@ async def upload_book(
             content = await files[0].read()
             await out_file.write(content)
         try:
-            saved_paths = await handle_pdf_upload(pdf_path, settings.UPLOAD_DIR)
+            saved_paths = handle_pdf_upload(pdf_path, settings.UPLOAD_DIR)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"PDF conversion failed: {str(e)}")
     else:
@@ -384,7 +384,7 @@ async def resplit_book_pages(book_id: str, db: AsyncSession = Depends(get_async_
                 pass
 
     try:
-        saved_paths = await handle_pdf_upload(source_pdf, settings.UPLOAD_DIR)
+        saved_paths = handle_pdf_upload(source_pdf, settings.UPLOAD_DIR)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF conversion failed: {str(e)}")
 

@@ -198,7 +198,7 @@ async def process_uploaded_book(book_id: str, source_paths: list[str], prompt_mo
             await db.commit()
 
             if len(source_paths) == 1 and source_paths[0].lower().endswith(".pdf"):
-                saved_paths = await handle_pdf_upload(source_paths[0], settings.UPLOAD_DIR)
+                saved_paths = handle_pdf_upload(source_paths[0], settings.UPLOAD_DIR)
             else:
                 saved_paths = [path for path in source_paths if os.path.exists(path)]
 
@@ -460,7 +460,7 @@ async def process_single_page_task(page_id: str, prompt_mode: str | None = None)
                 p.status = "Failed"
                 await fail_db.commit()
 
-async def handle_pdf_upload(file_path: str, upload_dir: str):
+def handle_pdf_upload(file_path: str, upload_dir: str):
     """
     Splits a PDF into images and saves them asynchronously.
     """
@@ -469,24 +469,26 @@ async def handle_pdf_upload(file_path: str, upload_dir: str):
     book_folder = os.path.dirname(file_path)
 
     try:
-        loop = asyncio.get_running_loop()
-
-        def _convert_with_poppler():
-            kwargs = {"poppler_path": POPPLER_PATH} if POPPLER_PATH else {}
-            return convert_from_path(file_path, **kwargs)
-
-        images = await loop.run_in_executor(None, _convert_with_poppler)
+        # Avoid indefinite hangs in poppler calls; fallback renderer handles failures.
+        print(f"DEBUG: Starting conversion for {file_path}")
+        if POPPLER_PATH:
+            images = convert_from_path(file_path, poppler_path=POPPLER_PATH, timeout=15)
+        else:
+            images = convert_from_path(file_path, timeout=15)
 
         for i, image in enumerate(images):
             page_path = os.path.join(book_folder, f"page_{i+1:03d}.png")
             image.save(page_path, "PNG")
             saved_paths.append(page_path)
 
+        print(f"DEBUG: Poppler success, saved {len(saved_paths)} pages")
         return saved_paths
     except Exception as poppler_error:
+        print(f"DEBUG: Poppler failed or timed out, trying pypdfium2: {poppler_error}")
         logger.warning("Poppler PDF conversion failed for %s, using pypdfium2 fallback: %s", file_path, poppler_error)
 
     try:
+        import pypdfium2 as pdfium
         document = pdfium.PdfDocument(file_path)
         for i in range(len(document)):
             page = document[i]
@@ -496,7 +498,9 @@ async def handle_pdf_upload(file_path: str, upload_dir: str):
             image.save(page_path, "PNG")
             saved_paths.append(page_path)
 
+        print(f"DEBUG: Fallback success, saved {len(saved_paths)} pages")
         return saved_paths
     except Exception as fallback_error:
+        print(f"DEBUG: ALL conversion methods failed for {file_path}")
         logger.error("PDF conversion failed for %s using both Poppler and pypdfium2: %s", file_path, fallback_error)
         raise
