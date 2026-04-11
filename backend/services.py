@@ -5,6 +5,7 @@ import threading
 import traceback
 import datetime
 import re
+import time
 import numpy as np
 from dotenv import load_dotenv
 from pdf2image import convert_from_path
@@ -281,7 +282,10 @@ async def _process_single_page_internal(db: AsyncSession, page: Page, ai_adapter
     img = Image.open(img_path)
 
     # Use the adapter to process the image
+    start_time = time.time()
     extracted_text = await ai_adapter.process_image(img, prompt)
+    end_time = time.time()
+    processing_seconds = end_time - start_time
     
     # Clean up any markdown formatting the model may return
     if extracted_text:
@@ -319,13 +323,15 @@ async def _process_single_page_internal(db: AsyncSession, page: Page, ai_adapter
         ocr_record.extracted_text = extracted_text
         ocr_record.confidence_score = confidence
         ocr_record.embedding = embedding_binary
+        ocr_record.processing_time = float(processing_seconds)
         ocr_record.created_at = datetime.datetime.utcnow()
     else:
         ocr_record = OCRResult(
             page_id=page.id,
             extracted_text=extracted_text,
             confidence_score=confidence,
-            embedding=embedding_binary
+            embedding=embedding_binary,
+            processing_time=float(processing_seconds)
         )
         db.add(ocr_record)
 

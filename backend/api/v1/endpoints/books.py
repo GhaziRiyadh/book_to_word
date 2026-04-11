@@ -403,20 +403,44 @@ async def get_book_status(book_id: str, db: AsyncSession = Depends(get_async_db)
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
         
-    result = await db.execute(select(Page).where(Page.book_id == book_id))
+    result = await db.execute(
+        select(Page)
+        .options(selectinload(Page.ocr_results))
+        .where(Page.book_id == book_id)
+    )
     pages = result.scalars().all()
     
     completed = sum(1 for p in pages if p.status in ["Completed", "Published"])
     total = len(pages)
     progress_percent = (completed / total * 100) if total > 0 else 0
     
-    pages_status = [{"page_number": p.page_number, "status": p.status, "id": p.id} for p in pages]
+    # Calculate statistics
+    total_processing_time = 0.0
+    pages_with_time = 0
+    
+    pages_status = []
+    for p in pages:
+        page_dict = {"page_number": p.page_number, "status": p.status, "id": p.id}
+        
+        # Get processing time from latest OCR result
+        if p.ocr_results:
+            latest_ocr = p.ocr_results[0]
+            if latest_ocr.processing_time:
+                page_dict["processing_time"] = latest_ocr.processing_time
+                total_processing_time += latest_ocr.processing_time
+                pages_with_time += 1
+        
+        pages_status.append(page_dict)
+    
+    avg_page_time = total_processing_time / pages_with_time if pages_with_time > 0 else 0
     
     return {
         "status": book.status,
         "title": book.title,
         "progress": f"{completed}/{total}",
         "progress_percent": progress_percent,
+        "total_processing_time": total_processing_time,
+        "avg_page_time": avg_page_time,
         "pages": pages_status
     }
 

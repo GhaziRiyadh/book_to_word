@@ -110,6 +110,30 @@ export function BookDetailsPage() {
         lastStatusKeyRef.current = nextKey
         if (refreshResultsIfChanged) {
           await fetchResults()
+          
+          // Auto-scroll to the page that just finished processing
+          const prevStatus = lastStatusKeyRef.current ? lastStatusKeyRef.current.split("::")[1] : ""
+          const currentStatusMap = nextKey.split("::")[1]
+          
+          if (prevStatus && currentStatusMap !== prevStatus) {
+            const prevPages = prevStatus.split("|")
+            const currentPages = currentStatusMap.split("|")
+            
+            for (let i = 0; i < currentPages.length; i++) {
+              const [id, status] = currentPages[i].split(":")
+              const prevPage = prevPages.find(p => p.startsWith(id + ":"))
+              const prevStatusVal = prevPage ? prevPage.split(":")[1] : ""
+              
+              // If page status changed from Processing/Pending to Completed, scroll to it
+              if (status === "Completed" && (prevStatusVal === "Processing" || prevStatusVal === "Pending")) {
+                const pageObj = nextStatus.pages?.find(p => p.id === id)
+                if (pageObj) {
+                  scrollToPage(pageObj.page_number)
+                  break; // Scroll to first newly completed page found
+                }
+              }
+            }
+          }
         }
       }
     } catch (error) {
@@ -635,7 +659,20 @@ export function BookDetailsPage() {
         {/* Global Progress */}
         <div className="mb-6 print:hidden">
            <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-medium">تقدم المعالجة</span>
+              <div className="flex items-center gap-4">
+                <span className="text-xs font-medium">تقدم المعالجة</span>
+                {bookStatus?.total_processing_time !== undefined && bookStatus.total_processing_time > 0 && (
+                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground border-r pr-3 mr-3 border-border">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      إجمالي وقت المعالجة: {Math.floor(bookStatus.total_processing_time / 60)}د {Math.floor(bookStatus.total_processing_time % 60)}ث
+                    </span>
+                    <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
+                      معدل الصفحة: {bookStatus.avg_page_time?.toFixed(1)} ثانية
+                    </span>
+                  </div>
+                )}
+              </div>
               <span className="text-xs text-muted-foreground">{Math.round(bookStatus?.progress_percent || 0)}%</span>
            </div>
            <Progress value={bookStatus?.progress_percent || 0} className="h-1.5" />

@@ -35,6 +35,7 @@ class OCRResult(Base):
     extracted_text = Column(Text, nullable=True)
     confidence_score = Column(Float, nullable=True)
     embedding = Column(LargeBinary, nullable=True)  # Store vector as binary
+    processing_time = Column(Float, nullable=True)  # Time taken in seconds
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     page = relationship("Page", back_populates="ocr_results", lazy="selectin")
